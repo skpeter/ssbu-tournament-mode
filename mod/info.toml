@@ -1,0 +1,9 @@
+display_name = "SSBU Tournament Mode"
+authors = "skpeter"
+version = "0.3.10"
+description = """
+Rivals-style local set mode: First to = 1 in rules, set length from preset name (FT2/FT3).
+CSS then SSS between games, in-match set scoreboard, TournamentMode Lua for Midwest striking.
+Requires Skyline + ARCropolis. Do not also load libcss_first.nro.
+"""
+category = "Gameplay"

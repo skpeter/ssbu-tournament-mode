@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,height=device-height,user-scalable=no"/>
+<title>Rock Paper Scissors</title>
+<script>
+// Critical: stop B/X from closing the Offline WebApplet (default Back/Exit).
+try {
+  window.nx.footer.unsetAssign("B");
+  window.nx.footer.unsetAssign("X");
+  window.nx.footer.unsetAssign("A");
+  window.nx.footer.unsetAssign("Y");
+} catch (e) {}
+</script>
+<style>
+  :root {
+    --bg: #0a1a3a;
+    --grid: rgba(80, 140, 255, 0.12);
+    --p1: #f0c040;
+    --p2: #e060a0;
+    --rock: #e07020;
+    --paper: #30c8e0;
+    --scissors: #40c060;
+    --cancel: #8050c0;
+    --text: #f4f7ff;
+    --muted: #9aa8c8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    font-family: "-webkit-standard", "Segoe UI", Arial, sans-serif;
+    color: var(--text);
+    background:
+      linear-gradient(160deg, rgba(20,40,90,0.9), rgba(8,16,40,0.95)),
+      repeating-linear-gradient(0deg, transparent, transparent 31px, var(--grid) 32px),
+      repeating-linear-gradient(90deg, transparent, transparent 31px, var(--grid) 32px),
+      var(--bg);
+  }
+  .wrap {
+    height: 100%;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    padding: 3vh 4vw 8vh;
+  }
+  h1 {
+    text-align: center;
+    font-style: italic;
+    letter-spacing: 0.08em;
+    font-size: 4.2vh;
+    text-shadow: 0 2px 0 #000, 0 0 18px rgba(120,180,255,0.45);
+  }
+  .timer {
+    margin: 1vh auto 0;
+    width: max-content;
+    background: rgba(20,24,40,0.85);
+    border-radius: 999px;
+    padding: 0.6vh 2.2vw;
+    font-size: 2.2vh;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+  }
+  .stage {
+    display: grid;
+    grid-template-columns: 1fr 1.1fr 1fr;
+    align-items: center;
+    gap: 2vw;
+    min-height: 0;
+  }
+  .player {
+    height: 70%;
+    border-radius: 1.2vh;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    padding: 2vh;
+    opacity: 0.55;
+    transition: opacity 0.15s ease, box-shadow 0.15s ease;
+  }
+  .player.active { opacity: 1; }
+  .player.p1 {
+    background: linear-gradient(135deg, rgba(240,160,40,0.55), rgba(40,20,10,0.2));
+    box-shadow: inset 0 0 0 3px rgba(240,192,64,0.35);
+  }
+  .player.p2 {
+    background: linear-gradient(225deg, rgba(224,96,160,0.55), rgba(40,10,30,0.2));
+    box-shadow: inset 0 0 0 3px rgba(224,96,160,0.35);
+  }
+  .player.p1.active { box-shadow: inset 0 0 0 4px rgba(240,192,64,0.95); }
+  .player.p2.active { box-shadow: inset 0 0 0 4px rgba(224,96,160,0.95); }
+  .tag {
+    font-size: 6vh;
+    font-weight: 900;
+    font-style: italic;
+    text-shadow: 0 3px 0 rgba(0,0,0,0.55);
+  }
+  .player.p1 .tag { color: var(--p1); }
+  .player.p2 .tag { color: var(--p2); text-align: right; }
+  .choice {
+    margin-top: auto;
+    font-size: 3.4vh;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+  }
+  .player.p2 .choice { text-align: right; }
+  .choice.locked { color: #7dff9a; }
+  .diamond-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .diamond {
+    width: min(38vh, 34vw);
+    height: min(38vh, 34vw);
+    position: relative;
+  }
+  .cell {
+    position: absolute;
+    width: 42%;
+    height: 42%;
+    clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 5vh;
+    font-weight: 900;
+    color: #111;
+    cursor: pointer;
+    transition: transform 0.08s ease, filter 0.08s ease;
+  }
+  .cell:active, .cell.pulse { transform: scale(1.06); filter: brightness(1.15); }
+  .cell.rock { left: 29%; bottom: 0; background: var(--rock); }
+  .cell.paper { left: 0; top: 29%; background: var(--paper); }
+  .cell.scissors { left: 29%; top: 0; background: var(--scissors); }
+  .cell.cancel { right: 0; top: 29%; background: var(--cancel); color: #fff; }
+  .status {
+    background: rgba(40, 20, 70, 0.9);
+    border-radius: 0.8vh;
+    padding: 1.4vh 2vw;
+    font-size: 2.4vh;
+    letter-spacing: 0.04em;
+    text-align: center;
+  }
+  .ready { color: #7dff9a; font-weight: 900; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>ROCK PAPER SCISSORS</h1>
+      <div class="timer" id="timer">30 SELECT</div>
+    </header>
+    <main class="stage">
+      <section class="player p1 active" id="panel1">
+        <div class="tag">P1</div>
+        <div class="choice" id="c1">—</div>
+      </section>
+      <section class="diamond-wrap">
+        <div class="diamond">
+          <div class="cell scissors" data-choice="scissors">V</div>
+          <div class="cell paper" data-choice="paper">P</div>
+          <div class="cell rock" data-choice="rock">R</div>
+          <div class="cell cancel" data-choice="cancel">X</div>
+        </div>
+      </section>
+      <section class="player p2" id="panel2">
+        <div class="tag">P2</div>
+        <div class="choice" id="c2">—</div>
+      </section>
+    </main>
+    <div class="status" id="status">PLAYER 1 — PICK WITH FACE BUTTONS</div>
+  </div>
+<script>
+(function () {
+  var labels = { rock: "ROCK", paper: "PAPER", scissors: "SCISSORS" };
+  var beats = { rock: "scissors", paper: "rock", scissors: "paper" };
+  var p1 = null, p2 = null;
+  // Offline WebApplet only routes face buttons to one focus — P1 then P2.
+  var turn = 0;
+  var done = false;
+  var seconds = 30;
+
+  var statusEl = document.getElementById("status");
+  var c1 = document.getElementById("c1");
+  var c2 = document.getElementById("c2");
+  var timer = document.getElementById("timer");
+  var panel1 = document.getElementById("panel1");
+  var panel2 = document.getElementById("panel2");
+
+  function paint() {
+    c1.textContent = p1 ? labels[p1] : "—";
+    c2.textContent = p2 ? labels[p2] : "—";
+    c1.className = "choice" + (p1 ? " locked" : "");
+    c2.className = "choice" + (p2 ? " locked" : "");
+    panel1.className = "player p1" + (turn === 0 && !done ? " active" : "");
+    panel2.className = "player p2" + (turn === 1 && !done ? " active" : "");
+    if (done) return;
+    if (turn === 0) {
+      statusEl.textContent = "PLAYER 1 MAKE SELECTION";
+    } else {
+      statusEl.innerHTML = "PLAYER 2 MAKE SELECTION <span class='ready'>P1 ✓</span>";
+    }
+  }
+
+  function winnerOf(a, b) {
+    if (a === b) return -1;
+    return beats[a] === b ? 0 : 1;
+  }
+
+  function finish(winnerPort) {
+    done = true;
+    statusEl.textContent = winnerPort === 0
+      ? "P1 WINS RPS — BANS FIRST"
+      : "P2 WINS RPS — BANS FIRST";
+    panel1.className = "player p1" + (winnerPort === 0 ? " active" : "");
+    panel2.className = "player p2" + (winnerPort === 1 ? " active" : "");
+    setTimeout(function () {
+      location.href = "http://localhost/rps?winner=" + winnerPort;
+    }, 1100);
+  }
+
+  function maybeResolve() {
+    if (!p1 || !p2 || done) return;
+    var w = winnerOf(p1, p2);
+    if (w < 0) {
+      statusEl.textContent = "TIE — GO AGAIN";
+      setTimeout(function () {
+        p1 = null;
+        p2 = null;
+        turn = 0;
+        paint();
+        bindFooter();
+      }, 800);
+      return;
+    }
+    finish(w);
+  }
+
+  function setChoice(choice) {
+    if (done) return;
+    if (choice === "cancel") {
+      if (turn === 0) p1 = null;
+      else p2 = null;
+      paint();
+      return;
+    }
+    if (turn === 0) {
+      p1 = choice;
+      turn = 1;
+      paint();
+      bindFooter();
+      return;
+    }
+    p2 = choice;
+    paint();
+    maybeResolve();
+  }
+
+  function pulse(choice) {
+    var el = document.querySelector('.cell[data-choice="' + choice + '"]');
+    if (!el) return;
+    el.classList.add("pulse");
+    setTimeout(function () { el.classList.remove("pulse"); }, 120);
+  }
+
+  function onPick(choice) {
+    pulse(choice);
+    setChoice(choice);
+  }
+
+  function bindFooter() {
+    try {
+      // Re-clear defaults every rebind (X/B otherwise exit the applet).
+      window.nx.footer.unsetAssign("B");
+      window.nx.footer.unsetAssign("X");
+      window.nx.footer.unsetAssign("A");
+      window.nx.footer.unsetAssign("Y");
+
+      window.nx.footer.setAssign("Y", "Rock", function () { onPick("rock"); }, { se: "SeWebBtnDecide" });
+      window.nx.footer.setAssign("A", "Paper", function () { onPick("paper"); }, { se: "SeWebBtnDecide" });
+      window.nx.footer.setAssign("X", "Scissors", function () { onPick("scissors"); }, { se: "SeWebBtnDecide" });
+      window.nx.footer.setAssign("B", "Clear", function () { onPick("cancel"); }, { se: "SeWebBtnCancel" });
+    } catch (e) {
+      statusEl.textContent = "BUTTON BIND FAILED — USE TOUCH ON DIAMONDS";
+    }
+  }
+
+  document.querySelectorAll(".cell").forEach(function (el) {
+    el.addEventListener("click", function () {
+      onPick(el.getAttribute("data-choice"));
+    });
+  });
+
+  setInterval(function () {
+    if (done) return;
+    seconds -= 1;
+    if (seconds < 0) seconds = 0;
+    timer.textContent = (seconds < 10 ? "0" : "") + seconds + " SELECT";
+    if (seconds === 0 && !done) {
+      var opts = ["rock", "paper", "scissors"];
+      if (!p1) p1 = opts[Math.floor(Math.random() * 3)];
+      if (!p2) p2 = opts[Math.floor(Math.random() * 3)];
+      paint();
+      maybeResolve();
+    }
+  }, 1000);
+
+  paint();
+  bindFooter();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+﻿# Copy to sd:/ultimate/tournament_mode.toml
+
+enabled = true
+
+# Character Select before Stage Select (replaces standalone libcss_first.nro).
+css_first = true
+
+# Fallback set length if the selected ruleset name has no FT#.
+# Preferred: name your Versus presets e.g. "Midwest FT2" / "Midwest FT3"
+# (in-game First to stays at 1 Win). Switching presets mid-bracket updates
+# set length without reboot or editing this file.
+set_length = 3
+
+# Legacy alias for set_length:
+# first_to_override = 3
+
+strike_preset = "1-2-any"          # or "3-4-any"
+auto_ban_counterpicks_after_g1 = true
+auto_strike_picker_prior_wins = true
+scoreboard = true
+# Exact info_melee pane (inventory 0.3.7). Default txt_gsp = unused local GSP label.
+scoreboard_pane = "txt_gsp"
+set_callout_on_final = false
+log_level = "info"

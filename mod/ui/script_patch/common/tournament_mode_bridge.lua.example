@@ -1,0 +1,40 @@
+-- Example Midwest / stage_select_actor3 bridge (not installed yet).
+-- When TournamentMode is present and active, show score + gate bans on game 2+.
+-- Game 1: get_strike_controller() == 0 → ungated (IRL ban order).
+-- Otherwise fall through to stock Midwest striking.
+
+local function tm()
+    if TournamentMode ~= nil and TournamentMode.is_present() then
+        return TournamentMode
+    end
+    return nil
+end
+
+function tournament_on_sss_enter()
+    local api = tm()
+    if api == nil or not api.is_active() then
+        return false
+    end
+    -- Show api.get_prompt() or api.get_score_line() on your SSS text pane.
+    return true
+end
+
+function tournament_can_ban(port)
+    local api = tm()
+    if api == nil or not api.is_active() then
+        return true -- Midwest owns it
+    end
+    local controller = api.get_strike_controller()
+    if controller == 0 then
+        return true -- ungated (game 1)
+    end
+    return controller == port
+end
+
+function tournament_after_ban()
+    local api = tm()
+    if api == nil then
+        return
+    end
+    api.record_ban()
+end
