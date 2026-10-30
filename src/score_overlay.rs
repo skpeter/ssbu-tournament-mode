@@ -3,7 +3,9 @@
 //! `ig*` comes from `lib/libimgui_smash.a`. Draw/setup registration uses the
 //! host NRO exports (LookupSymbol — those did resolve in 0.3.9).
 
-use crate::board_visibility::{hud_font_scale, stage_box_positions, ScoreMarks};
+use crate::board_visibility::{
+    cell_filled, hud_font_scale, side_column, stage_box_positions, ScoreMarks,
+};
 use crate::logutil;
 use crate::scoreboard;
 use skyline::nn::ro::LookupSymbol;
@@ -43,7 +45,9 @@ extern "C" {
     fn igGetWindowDrawList() -> *mut c_void;
     fn igGetWindowPos() -> ImVec2;
     fn igGetCursorScreenPos() -> ImVec2;
+    fn igGetCursorPos() -> ImVec2;
     fn igGetCursorPosX() -> f32;
+    fn igSetCursorPos(pos: ImVec2);
     fn igGetContentRegionAvail() -> ImVec2;
     fn igSetCursorPosX(x: f32);
     fn igCalcTextSize(
@@ -55,8 +59,8 @@ extern "C" {
     fn igPushStyleVar_Vec2(idx: i32, val: ImVec2);
     fn igPopStyleVar(count: i32);
     fn igDummy(size: ImVec2);
-    #[link_name = "_ZN5ImGui18SetWindowFontScaleEf"]
-    fn set_window_font_scale(scale: f32);
+    fn igPushFont(font: *mut c_void, font_size_base: f32);
+    fn igPopFont();
     fn ImDrawList_AddRect(
         draw_list: *mut c_void,
         p_min: ImVec2,
@@ -128,7 +132,6 @@ unsafe extern "C" fn setup_ctx(ctx: *mut u64) {
 }
 
 const IMGUI_COL_TEXT: i32 = 0;
-const SAME_LINE_SPACING: f32 = 16.0;
 const BLOCK: f32 = 14.0;
 const BLOCK_GAP: f32 = 4.0;
 const GROUP_GAP: f32 = 22.0;
@@ -223,49 +226,118 @@ fn pack_color(color: ImVec4) -> u32 {
     r | (g << 8) | (b << 16) | (a << 24)
 }
 
-unsafe fn paint_marks(
-    marks: ScoreMarks,
-    color: ImVec4,
-    mut same_line: bool,
-    leading_gap: f32,
-    scale: f32,
-) -> bool {
-    let list = igGetWindowDrawList();
-    if list.is_null() {
-        return same_line;
+fn grid_width(marks: ScoreMarks, scale: f32) -> f32 {
+    let total = marks.filled + marks.open;
+    if total == 0 {
+        return 0.0;
     }
     let block = BLOCK * scale;
+    let gap = BLOCK_GAP * scale;
+    total as f32 * block + (total - 1) as f32 * gap
+}
+
+unsafe fn paint_mark_row(
+    marks: ScoreMarks,
+    color: ImVec4,
+    origin: ImVec2,
+    scale: f32,
+    from_right: bool,
+) {
+    let list = igGetWindowDrawList();
+    if list.is_null() {
+        return;
+    }
+    let block = BLOCK * scale;
+    let gap = BLOCK_GAP * scale;
     let round = BLOCK_ROUND * scale;
     let thick = BLOCK_THICK * scale;
-    let between = BLOCK_GAP * scale;
     let total = marks.filled + marks.open;
     let filled_col = pack_color(color);
     for i in 0..total {
-        if same_line {
-            let gap = if i == 0 { leading_gap } else { between };
-            igSameLine(0.0, gap);
-        }
-        same_line = true;
+        igSetCursorPos(ImVec2 {
+            x: origin.x + i as f32 * (block + gap),
+            y: origin.y,
+        });
         let pos = igGetCursorScreenPos();
-        let min = ImVec2 {
-            x: pos.x,
-            y: pos.y + scale,
-        };
+        let min = pos;
         let max = ImVec2 {
             x: pos.x + block,
-            y: pos.y + scale + block,
+            y: pos.y + block,
         };
-        if i < marks.filled {
+        if cell_filled(i, marks.filled, total, from_right) {
             ImDrawList_AddRectFilled(list, min, max, filled_col, round, 0);
         } else {
             ImDrawList_AddRect(list, min, max, filled_col, round, 0, thick);
         }
-        igDummy(ImVec2 {
-            x: block,
-            y: block + scale,
-        });
+        igDummy(ImVec2 { x: block, y: block });
     }
-    same_line
+}
+
+unsafe fn paint_scoreboard(parts: &scoreboard::DrawParts, chrome: &Chrome) {
+    let scale = chrome.scale;
+    let origin = igGetCursorPos();
+    let left_name = match parts.tag0.as_ref() {
+        Some(tag) => Some(line_px(tag)),
+        None => None,
+    };
+    let right_name = match parts.tag1.as_ref() {
+        Some(tag) => Some(line_px(tag)),
+        None => None,
+    };
+    let left = side_column(
+        left_name.map(|size| size.x).unwrap_or(0.0),
+        grid_width(parts.left, scale),
+        true,
+    );
+    let right = side_column(
+        right_name.map(|size| size.x).unwrap_or(0.0),
+        grid_width(parts.right, scale),
+        false,
+    );
+    let name_h = left_name
+        .map(|size| size.y)
+        .unwrap_or(0.0)
+        .max(right_name.map(|size| size.y).unwrap_or(0.0));
+    let grid_y = if name_h > 0.0 {
+        origin.y + name_h + chrome.spacing.y * scale
+    } else {
+        origin.y
+    };
+    let right_x = origin.x + left.width + GROUP_GAP * scale;
+    if let Some(tag) = parts.tag0.as_ref() {
+        igSetCursorPos(ImVec2 {
+            x: origin.x + left.name_x,
+            y: origin.y,
+        });
+        paint(tag, COLOR_PORT_0, false, 0.0);
+    }
+    if let Some(tag) = parts.tag1.as_ref() {
+        igSetCursorPos(ImVec2 {
+            x: right_x + right.name_x,
+            y: origin.y,
+        });
+        paint(tag, COLOR_PORT_1, false, 0.0);
+    }
+    paint_mark_row(
+        parts.left,
+        COLOR_PORT_0,
+        ImVec2 {
+            x: origin.x + left.grid_x,
+            y: grid_y,
+        },
+        scale,
+        true,
+    );
+    paint_mark_row(
+        parts.right,
+        COLOR_PORT_1,
+        ImVec2 {
+            x: right_x + right.grid_x,
+            y: grid_y,
+        },
+        scale,
+        false,
+    );
 }
 
 fn winner_color(winner: u8) -> ImVec4 {
@@ -305,13 +377,28 @@ fn outer_size(name: ImVec2, tag: Option<ImVec2>, chrome: &Chrome) -> (f32, f32) 
     if let Some(tag) = tag {
         text_w = text_w.max(tag.x);
         text_h += tag.y;
-        gap = chrome.spacing.y;
+        gap = chrome.spacing.y * chrome.scale;
     }
-    let scale = chrome.scale;
-    (
-        (text_w + chrome.pad.x * 2.0) * scale,
-        (text_h + gap + chrome.pad.y * 2.0) * scale,
-    )
+    let pad_x = chrome.pad.x * chrome.scale;
+    let pad_y = chrome.pad.y * chrome.scale;
+    (text_w + pad_x * 2.0, text_h + gap + pad_y * 2.0)
+}
+
+/// Rasterize at `FontSizeBase * scale` instead of stretching the current glyphs.
+unsafe fn push_native_font(scale: f32) -> bool {
+    if scale <= 1.0 {
+        return false;
+    }
+    let style = igGetStyle();
+    if style.is_null() {
+        return false;
+    }
+    let base = *(style as *const f32);
+    if !(4.0..=96.0).contains(&base) {
+        return false;
+    }
+    igPushFont(std::ptr::null_mut(), base * scale);
+    true
 }
 
 fn stage_window_id(index: usize) -> [u8; 16] {
@@ -354,9 +441,6 @@ unsafe fn paint_stage_row(
         igSetNextWindowBgAlpha(WINDOW_BG_ALPHA);
         let name = stage_window_id(index);
         if igBegin(name.as_ptr() as _, std::ptr::null_mut(), STAGE_FLAGS) {
-            if chrome.scale > 1.0 {
-                set_window_font_scale(chrome.scale);
-            }
             let color = winner_color(cell.winner);
             if let Some(tag) = cell.tag.as_ref() {
                 paint_centered(tag, color);
@@ -382,6 +466,7 @@ unsafe extern "C" fn draw() {
     }
     if let Some(parts) = scoreboard::draw_parts() {
         let scaled = chrome.scale > 1.0;
+        let mut native_font = false;
         if scaled {
             igPushStyleVar_Vec2(
                 STYLE_WINDOW_PADDING,
@@ -413,36 +498,9 @@ unsafe extern "C" fn draw() {
             std::ptr::null_mut(),
             SCORE_FLAGS,
         ) {
-            if scaled {
-                set_window_font_scale(chrome.scale);
-            }
-            let spacing = SAME_LINE_SPACING * chrome.scale;
-            let mut follow = false;
-            if let Some(tag) = parts.tag0.as_ref() {
-                paint(tag, COLOR_PORT_0, false, spacing);
-                follow = true;
-            }
-            follow = paint_marks(
-                parts.left,
-                COLOR_PORT_0,
-                follow,
-                if follow { spacing } else { 0.0 },
-                chrome.scale,
-            );
-            follow = paint_marks(
-                parts.right,
-                COLOR_PORT_1,
-                follow,
-                if follow {
-                    GROUP_GAP * chrome.scale
-                } else {
-                    0.0
-                },
-                chrome.scale,
-            );
-            if let Some(tag) = parts.tag1.as_ref() {
-                paint(tag, COLOR_PORT_1, follow, spacing);
-            }
+            // Push after Begin so the larger size is baked while a window is current.
+            native_font = push_native_font(chrome.scale);
+            paint_scoreboard(&parts, &chrome);
             score_top = Some(igGetWindowPos().y);
         }
         igEnd();
@@ -453,6 +511,9 @@ unsafe extern "C" fn draw() {
         }
         if scaled {
             igPopStyleVar(2);
+        }
+        if native_font {
+            igPopFont();
         }
     } else {
         igSetNextWindowPos(

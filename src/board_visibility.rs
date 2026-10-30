@@ -236,6 +236,43 @@ pub fn pick_played_stage(selected: i32, loaded: i32, cached: Option<i32>) -> Opt
         .or_else(|| cached.and_then(playable_stage))
 }
 
+/// A win cell. `from_right` fills the left player's grid toward the center.
+pub fn cell_filled(index: u32, filled: u32, total: u32, from_right: bool) -> bool {
+    if total == 0 || index >= total {
+        return false;
+    }
+    if from_right {
+        index + filled >= total
+    } else {
+        index < filled
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SideColumn {
+    pub name_x: f32,
+    pub grid_x: f32,
+    pub width: f32,
+}
+
+/// Name above the grid. `align_end` pins both to the inner edge (player 1).
+pub fn side_column(name_w: f32, grid_w: f32, align_end: bool) -> SideColumn {
+    let width = name_w.max(grid_w);
+    if align_end {
+        SideColumn {
+            name_x: width - name_w,
+            grid_x: width - grid_w,
+            width,
+        }
+    } else {
+        SideColumn {
+            name_x: 0.0,
+            grid_x: 0.0,
+            width,
+        }
+    }
+}
+
 /// `nn::oe::GetOperationMode`: handheld and tabletop are 0, docked TV is 1.
 /// Docked text is 2x. Handheld stays at the original size.
 pub fn hud_font_scale(operation_mode: i32) -> f32 {
@@ -518,6 +555,43 @@ mod tests {
     }
 
     #[test]
+    fn left_grid_fills_toward_the_center() {
+        assert!(!cell_filled(0, 2, 3, true));
+        assert!(cell_filled(1, 2, 3, true));
+        assert!(cell_filled(2, 2, 3, true));
+        assert!(cell_filled(0, 1, 3, false));
+        assert!(!cell_filled(1, 1, 3, false));
+        assert!(!cell_filled(0, 0, 3, true));
+        assert!(cell_filled(0, 3, 3, true));
+    }
+
+    fn names_sit_on_the_inner_edge() {
+        assert_eq!(
+            side_column(40.0, 30.0, true),
+            SideColumn {
+                name_x: 0.0,
+                grid_x: 10.0,
+                width: 40.0,
+            }
+        );
+        assert_eq!(
+            side_column(20.0, 30.0, true),
+            SideColumn {
+                name_x: 10.0,
+                grid_x: 0.0,
+                width: 30.0,
+            }
+        );
+        assert_eq!(
+            side_column(50.0, 30.0, false),
+            SideColumn {
+                name_x: 0.0,
+                grid_x: 0.0,
+                width: 50.0,
+            }
+        );
+    }
+
     fn docked_text_is_double_handheld_stays() {
         assert_eq!(hud_font_scale(0), 1.0);
         assert_eq!(hud_font_scale(1), 2.0);
