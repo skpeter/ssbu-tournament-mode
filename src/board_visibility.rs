@@ -274,9 +274,10 @@ pub fn side_column(name_w: f32, grid_w: f32, align_end: bool) -> SideColumn {
 }
 
 /// `nn::oe::GetOperationMode`: handheld and tabletop are 0, docked TV is 1.
-/// Docked text is 2x. Handheld stays at the original size.
-pub fn hud_font_scale(operation_mode: i32) -> f32 {
-    if operation_mode == 1 {
+/// 2x only on a docked framebuffer (about 1080p). A 720p image stays at 1x
+/// even when an emulator reports console mode.
+pub fn hud_font_scale(operation_mode: i32, display_width: f32) -> f32 {
+    if operation_mode == 1 && display_width >= 1600.0 {
         2.0
     } else {
         1.0
@@ -592,10 +593,12 @@ mod tests {
         );
     }
 
+    #[test]
     fn docked_text_is_double_handheld_stays() {
-        assert_eq!(hud_font_scale(0), 1.0);
-        assert_eq!(hud_font_scale(1), 2.0);
-        assert_eq!(hud_font_scale(2), 1.0);
+        assert_eq!(hud_font_scale(0, 1920.0), 1.0);
+        assert_eq!(hud_font_scale(1, 1920.0), 2.0);
+        assert_eq!(hud_font_scale(1, 1280.0), 1.0);
+        assert_eq!(hud_font_scale(2, 1920.0), 1.0);
     }
 
     #[test]

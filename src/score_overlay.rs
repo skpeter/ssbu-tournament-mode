@@ -59,8 +59,8 @@ extern "C" {
     fn igPushStyleVar_Vec2(idx: i32, val: ImVec2);
     fn igPopStyleVar(count: i32);
     fn igDummy(size: ImVec2);
-    fn igPushFont(font: *mut c_void, font_size_base: f32);
-    fn igPopFont();
+    #[link_name = "_ZN5ImGui18SetWindowFontScaleEf"]
+    fn set_window_font_scale(scale: f32);
     fn ImDrawList_AddRect(
         draw_list: *mut c_void,
         p_min: ImVec2,
@@ -168,8 +168,19 @@ unsafe fn window_anchor(scale: f32) -> (f32, f32, f32, f32) {
     (960.0, 1080.0 - margin, 1920.0, 1080.0)
 }
 
+unsafe fn display_width() -> f32 {
+    let io = igGetIO();
+    if !io.is_null() {
+        let width = (*io).display_size.x;
+        if width >= 100.0 {
+            return width;
+        }
+    }
+    1920.0
+}
+
 unsafe fn chrome() -> Chrome {
-    let scale = hud_font_scale(skyline::nn::oe::GetOperationMode());
+    let scale = hud_font_scale(skyline::nn::oe::GetOperationMode(), display_width());
     let style = igGetStyle();
     if style.is_null() {
         return Chrome {
@@ -377,28 +388,13 @@ fn outer_size(name: ImVec2, tag: Option<ImVec2>, chrome: &Chrome) -> (f32, f32) 
     if let Some(tag) = tag {
         text_w = text_w.max(tag.x);
         text_h += tag.y;
-        gap = chrome.spacing.y * chrome.scale;
+        gap = chrome.spacing.y;
     }
-    let pad_x = chrome.pad.x * chrome.scale;
-    let pad_y = chrome.pad.y * chrome.scale;
-    (text_w + pad_x * 2.0, text_h + gap + pad_y * 2.0)
-}
-
-/// Rasterize at `FontSizeBase * scale` instead of stretching the current glyphs.
-unsafe fn push_native_font(scale: f32) -> bool {
-    if scale <= 1.0 {
-        return false;
-    }
-    let style = igGetStyle();
-    if style.is_null() {
-        return false;
-    }
-    let base = *(style as *const f32);
-    if !(4.0..=96.0).contains(&base) {
-        return false;
-    }
-    igPushFont(std::ptr::null_mut(), base * scale);
-    true
+    let scale = chrome.scale;
+    (
+        (text_w + chrome.pad.x * 2.0) * scale,
+        (text_h + gap + chrome.pad.y * 2.0) * scale,
+    )
 }
 
 fn stage_window_id(index: usize) -> [u8; 16] {
@@ -441,6 +437,9 @@ unsafe fn paint_stage_row(
         igSetNextWindowBgAlpha(WINDOW_BG_ALPHA);
         let name = stage_window_id(index);
         if igBegin(name.as_ptr() as _, std::ptr::null_mut(), STAGE_FLAGS) {
+            if chrome.scale > 1.0 {
+                set_window_font_scale(chrome.scale);
+            }
             let color = winner_color(cell.winner);
             if let Some(tag) = cell.tag.as_ref() {
                 paint_centered(tag, color);
@@ -466,7 +465,6 @@ unsafe extern "C" fn draw() {
     }
     if let Some(parts) = scoreboard::draw_parts() {
         let scaled = chrome.scale > 1.0;
-        let mut native_font = false;
         if scaled {
             igPushStyleVar_Vec2(
                 STYLE_WINDOW_PADDING,
@@ -498,8 +496,9 @@ unsafe extern "C" fn draw() {
             std::ptr::null_mut(),
             SCORE_FLAGS,
         ) {
-            // Push after Begin so the larger size is baked while a window is current.
-            native_font = push_native_font(chrome.scale);
+            if scaled {
+                set_window_font_scale(chrome.scale);
+            }
             paint_scoreboard(&parts, &chrome);
             score_top = Some(igGetWindowPos().y);
         }
@@ -511,9 +510,6 @@ unsafe extern "C" fn draw() {
         }
         if scaled {
             igPopStyleVar(2);
-        }
-        if native_font {
-            igPopFont();
         }
     } else {
         igSetNextWindowPos(
