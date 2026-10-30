@@ -2,7 +2,7 @@ use crate::logutil;
 use once_cell::sync::OnceCell;
 use std::sync::Mutex;
 
-/// One finished game. `stage_id` is `app::stage::get_stage_id`. `winner` is 0 or 1.
+/// One finished game. `stage_id` is `app::sv_information::stage_id`. `winner` is 0 or 1.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PlayedGame {
     pub stage_id: i32,
@@ -136,9 +136,9 @@ fn reset_inner(s: &mut SetState, reason: &str) {
 }
 
 /// Append one played game. Does not write `won_stages`.
-/// A zero stage id is ignored. Returns false when the set is not tracking games.
+/// A negative stage id is ignored. Zero is Battlefield. Returns false when the set is not tracking games.
 pub fn push_played(stage_id: i32, winner: u8) -> bool {
-    if stage_id == 0 || winner > 1 {
+    if stage_id < 0 || winner > 1 {
         return false;
     }
     let mut s = lock();
@@ -203,7 +203,7 @@ mod tests {
     #[test]
     fn played_list_keeps_order_and_leaves_strike_list() {
         tracking_set();
-        assert!(!push_played(0, 0));
+        assert!(!push_played(-1, 0));
         assert!(push_played(4, 0));
         assert!(push_played(4, 1));
         let snap = snapshot();

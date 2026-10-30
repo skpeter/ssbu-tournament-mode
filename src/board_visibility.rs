@@ -160,26 +160,28 @@ pub fn strip_visible(board_up: bool, place: Place) -> bool {
     board_up && place == Place::Sss
 }
 
-/// Names for the stage ids this plugin records. Ids outside the list have no name.
+/// Names for `app::sv_information::stage_id`.
+/// Each arm is the normal form, then its omega form, then its battlefield form.
+/// Ids outside the list have no name.
 pub fn stage_name(stage_id: i32) -> Option<&'static str> {
     Some(match stage_id {
-        2 => "Town and City",
-        4 => "Smashville",
-        120 => "Small Battlefield",
-        121 => "Battlefield",
-        255 => "Final Destination",
-        260 => "Northern Cave",
-        318 => "Kalos Pokemon League",
-        320 => "Pokemon Stadium 2",
-        343 => "Hollow Bastion",
-        352 => "Yoshi's Story",
+        0x0 | 0x1 => "Battlefield",
+        0x3 | 0x4 => "Final Destination",
+        0xE | 0xF | 0x10 => "Yoshi's Story",
+        0x5F | 0x60 | 0x61 => "Smashville",
+        0x6B | 0x6C | 0x6D => "Pokemon Stadium 2",
+        0xF2 | 0xF3 | 0xF4 => "Kalos Pokemon League",
+        0x101 | 0x102 | 0x103 => "Town and City",
+        0x15B => "Small Battlefield",
+        0x15F | 0x160 | 0x161 => "Northern Cave",
+        0x169 | 0x16A | 0x16B => "Hollow Bastion",
         _ => return None,
     })
 }
 
-/// Zero is not a stage. Anything else can become a strip cell.
+/// A negative id is not a stage. Zero is Battlefield.
 pub fn stage_for_strip(stage_id: i32) -> Option<i32> {
-    if stage_id == 0 {
+    if stage_id < 0 {
         None
     } else {
         Some(stage_id)
@@ -379,7 +381,7 @@ mod tests {
 
     #[test]
     fn strip_cells_keep_order_and_repeat_stages() {
-        let cells = strip_cells(&[(4, 0), (4, 1), (0, 0), (9, 2)], Some("Red"), Some("Blue"));
+        let cells = strip_cells(&[(4, 0), (4, 1), (-1, 0), (9, 2)], Some("Red"), Some("Blue"));
         assert_eq!(
             cells,
             vec![
@@ -404,22 +406,25 @@ mod tests {
         let missing = strip_cells(&[(3, 0)], None, Some(""));
         assert_eq!(missing.len(), 1);
         assert!(missing[0].tag.is_none());
-        assert!(stage_for_strip(0).is_none());
+        assert!(stage_for_strip(-1).is_none());
+        assert_eq!(stage_for_strip(0), Some(0));
     }
 
     #[test]
     fn stage_names_cover_the_manual_list() {
-        assert_eq!(stage_name(121), Some("Battlefield"));
-        assert_eq!(stage_name(255), Some("Final Destination"));
-        assert_eq!(stage_name(318), Some("Kalos Pokemon League"));
-        assert_eq!(stage_name(320), Some("Pokemon Stadium 2"));
-        assert_eq!(stage_name(4), Some("Smashville"));
-        assert_eq!(stage_name(2), Some("Town and City"));
-        assert_eq!(stage_name(352), Some("Yoshi's Story"));
-        assert_eq!(stage_name(120), Some("Small Battlefield"));
-        assert_eq!(stage_name(260), Some("Northern Cave"));
-        assert_eq!(stage_name(343), Some("Hollow Bastion"));
-        assert_eq!(stage_name(0), None);
+        assert_eq!(stage_name(0), Some("Battlefield"));
+        assert_eq!(stage_name(1), Some("Battlefield"));
+        assert_eq!(stage_name(3), Some("Final Destination"));
+        assert_eq!(stage_name(4), Some("Final Destination"));
+        assert_eq!(stage_name(0xE), Some("Yoshi's Story"));
+        assert_eq!(stage_name(0x5F), Some("Smashville"));
+        assert_eq!(stage_name(0x6B), Some("Pokemon Stadium 2"));
+        assert_eq!(stage_name(0xF2), Some("Kalos Pokemon League"));
+        assert_eq!(stage_name(0x101), Some("Town and City"));
+        assert_eq!(stage_name(0x15B), Some("Small Battlefield"));
+        assert_eq!(stage_name(0x15F), Some("Northern Cave"));
+        assert_eq!(stage_name(0x169), Some("Hollow Bastion"));
+        assert_eq!(stage_name(-1), None);
         assert_eq!(stage_name(215), None);
     }
 

@@ -58,7 +58,6 @@ pub struct StripPart {
     pub tag: Option<CString>,
     pub name: CString,
     pub winner: u8,
-    pub stage_id: i32,
 }
 
 static BOARD: OnceCell<Mutex<BoardRuntime>> = OnceCell::new();
@@ -255,7 +254,6 @@ fn strip_part(cell: StripCell) -> StripPart {
         tag: cell.tag.and_then(|text| CString::new(text).ok()),
         name: stage_label(cell.stage_id),
         winner: cell.winner,
-        stage_id: cell.stage_id,
     }
 }
 

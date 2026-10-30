@@ -205,9 +205,6 @@ fn winner_color(winner: u8) -> ImVec4 {
 
 unsafe fn paint_strip(parts: &scoreboard::DrawParts) {
     for (index, cell) in parts.strip.iter().enumerate() {
-        if cell.stage_id == 0 {
-            continue;
-        }
         if index > 0 {
             igSameLine(0.0, STRIP_GAP);
         }

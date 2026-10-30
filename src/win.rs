@@ -12,7 +12,7 @@ static ZERO_STAGE_LOGGED: AtomicBool = AtomicBool::new(false);
 
 fn log_zero_stage_once() {
     if !ZERO_STAGE_LOGGED.swap(true, Ordering::Relaxed) {
-        logutil::write("win: stage id 0, no strip cell");
+        logutil::write("win: stage id missing, no strip cell");
     }
 }
 
@@ -55,7 +55,7 @@ pub unsafe fn try_attribute_from_fighter_manager() {
     };
 
     if let Some(w) = winner {
-        let stage_id = app::stage::get_stage_id();
+        let stage_id = app::sv_information::stage_id();
         if crate::board_visibility::stage_for_strip(stage_id).is_none() {
             log_zero_stage_once();
         } else {
