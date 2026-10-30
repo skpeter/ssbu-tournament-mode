@@ -20,11 +20,11 @@ env:
 jobs:
   nro:
     name: Build NRO
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -62,7 +62,7 @@ jobs:
           test -f target/aarch64-skyline-switch/release/libssbu_tournament_mode.nro
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ssbu-tournament-mode-${{ steps.meta.outputs.version }}
           path: |
@@ -71,7 +71,7 @@ jobs:
 
       - name: Publish GitHub release
         if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
           name: ${{ steps.meta.outputs.tag }}
