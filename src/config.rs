@@ -93,7 +93,7 @@ pub fn load() {
                 cfg.set_callout_on_final = parse_bool(val, cfg.set_callout_on_final)
             }
             "log_level" => cfg.log_level = val.to_string(),
-            // Parsed in lib.rs (drives set_state); ignore here.
+            // Removed. Ignore stale SD keys.
             "first_to_override" | "set_length" => {}
             other => logutil::write(&format!("config: unknown key '{}'", other)),
         }

@@ -5,14 +5,8 @@ enabled = true
 # Character Select before Stage Select (replaces standalone libcss_first.nro).
 css_first = true
 
-# Fallback set length if the selected ruleset name has no FT#.
-# Preferred: name your Versus presets e.g. "Midwest FT2" / "Midwest FT3"
-# (in-game First to stays at 1 Win). Switching presets mid-bracket updates
-# set length without reboot or editing this file.
-set_length = 3
-
-# Legacy alias for set_length:
-# first_to_override = 3
+# Set length comes from the Versus preset name (e.g. "Midwest FT2" / "Midwest FT3").
+# In-game First to stays at 1 Win. A name without FT leaves the set inactive.
 
 strike_preset = "1-2-any"          # or "3-4-any"
 auto_ban_counterpicks_after_g1 = true

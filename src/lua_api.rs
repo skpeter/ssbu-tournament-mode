@@ -203,6 +203,9 @@ extern "C" fn tm_get_strike_preset(state: *mut lua::lua_State) -> i32 {
 }
 
 pub fn install() {
-    skyline::install_hooks!(add_to_key_context_hook);
-    logutil::write("lua: TournamentMode singleton hook installed");
+    // On this Skyline build the imported add_to_key_context resolves to zero.
+    // Installing a hook at that address makes Skyline abort while mapping its
+    // trampoline (0xD401). The match-score overlay does not rely on this Lua
+    // surface, so leave it unavailable rather than crash at boot.
+    logutil::write("lua: TournamentMode hook skipped (unresolved on this runtime)");
 }

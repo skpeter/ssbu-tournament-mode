@@ -3,11 +3,12 @@
 //! `ig*` comes from `lib/libimgui_smash.a`. Draw/setup registration uses the
 //! host NRO exports (LookupSymbol — those did resolve in 0.3.9).
 
+use crate::board_visibility::ScoreMarks;
 use crate::logutil;
-use crate::ruleset;
 use crate::scoreboard;
 use skyline::nn::ro::LookupSymbol;
 use std::os::raw::{c_char, c_void};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -16,14 +17,56 @@ struct ImVec2 {
     y: f32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct ImVec4 {
+    x: f32,
+    y: f32,
+    z: f32,
+    w: f32,
+}
+
 #[link(name = "imgui_smash")]
 extern "C" {
     fn igSetCurrentContext(ctx: *mut c_void);
     fn igBegin(name: *const c_char, p_open: *mut bool, flags: i32) -> bool;
     fn igEnd();
     fn igTextUnformatted(text: *const c_char, text_end: *const c_char);
+    fn igSameLine(offset_from_start_x: f32, spacing: f32);
+    fn igPushStyleColor_Vec4(idx: i32, col: ImVec4);
+    fn igPopStyleColor(count: i32);
     fn igSetNextWindowPos(pos: ImVec2, cond: i32, pivot: ImVec2);
     fn igSetNextWindowBgAlpha(alpha: f32);
+    fn igGetIO() -> *mut ImGuiIO;
+    fn igGetWindowDrawList() -> *mut c_void;
+    fn igGetCursorScreenPos() -> ImVec2;
+    fn igDummy(size: ImVec2);
+    fn igBeginGroup();
+    fn igEndGroup();
+    fn ImDrawList_AddRect(
+        draw_list: *mut c_void,
+        p_min: ImVec2,
+        p_max: ImVec2,
+        col: u32,
+        rounding: f32,
+        flags: i32,
+        thickness: f32,
+    );
+    fn ImDrawList_AddRectFilled(
+        draw_list: *mut c_void,
+        p_min: ImVec2,
+        p_max: ImVec2,
+        col: u32,
+        rounding: f32,
+        flags: i32,
+    );
+}
+
+#[repr(C)]
+struct ImGuiIO {
+    config_flags: i32,
+    backend_flags: i32,
+    display_size: ImVec2,
 }
 
 const IMGUI_COND_ALWAYS: i32 = 1;
@@ -70,17 +113,155 @@ unsafe extern "C" fn setup_ctx(ctx: *mut u64) {
     igSetCurrentContext(ctx as *mut c_void);
 }
 
+const IMGUI_COL_TEXT: i32 = 0;
+const SAME_LINE_SPACING: f32 = 16.0;
+const BLOCK: f32 = 14.0;
+const BLOCK_GAP: f32 = 4.0;
+const GROUP_GAP: f32 = 22.0;
+const BLOCK_ROUND: f32 = 2.0;
+const BLOCK_THICK: f32 = 2.0;
+const THUMB_W: f32 = 64.0;
+const THUMB_H: f32 = 36.0;
+const THUMB_GAP: f32 = 10.0;
+static DRAW_LOGGED: AtomicBool = AtomicBool::new(false);
+
+unsafe fn window_anchor() -> (f32, f32, f32, f32) {
+    let io = igGetIO();
+    if !io.is_null() {
+        let size = (*io).display_size;
+        if size.x >= 100.0 && size.y >= 100.0 {
+            return (size.x * 0.5, size.y - 24.0, size.x, size.y);
+        }
+    }
+    (960.0, 1080.0 - 24.0, 1920.0, 1080.0)
+}
+
+const COLOR_PORT_0: ImVec4 = ImVec4 {
+    x: 0.93,
+    y: 0.27,
+    z: 0.24,
+    w: 1.0,
+};
+const COLOR_PORT_1: ImVec4 = ImVec4 {
+    x: 0.27,
+    y: 0.52,
+    z: 0.95,
+    w: 1.0,
+};
+
+fn pack_color(color: ImVec4) -> u32 {
+    let r = (color.x * 255.0) as u32;
+    let g = (color.y * 255.0) as u32;
+    let b = (color.z * 255.0) as u32;
+    let a = (color.w * 255.0) as u32;
+    r | (g << 8) | (b << 16) | (a << 24)
+}
+
+unsafe fn paint_marks(marks: ScoreMarks, color: ImVec4, mut same_line: bool, leading_gap: f32) -> bool {
+    let list = igGetWindowDrawList();
+    if list.is_null() {
+        return same_line;
+    }
+    let total = marks.filled + marks.open;
+    let filled_col = pack_color(color);
+    for i in 0..total {
+        if same_line {
+            let gap = if i == 0 { leading_gap } else { BLOCK_GAP };
+            igSameLine(0.0, gap);
+        }
+        same_line = true;
+        let pos = igGetCursorScreenPos();
+        let min = ImVec2 {
+            x: pos.x,
+            y: pos.y + 1.0,
+        };
+        let max = ImVec2 {
+            x: pos.x + BLOCK,
+            y: pos.y + 1.0 + BLOCK,
+        };
+        if i < marks.filled {
+            ImDrawList_AddRectFilled(list, min, max, filled_col, BLOCK_ROUND, 0);
+        } else {
+            ImDrawList_AddRect(list, min, max, filled_col, BLOCK_ROUND, 0, BLOCK_THICK);
+        }
+        igDummy(ImVec2 {
+            x: BLOCK,
+            y: BLOCK + 1.0,
+        });
+    }
+    same_line
+}
+
+unsafe fn paint_thumb(color: ImVec4) {
+    let list = igGetWindowDrawList();
+    let pos = igGetCursorScreenPos();
+    if !list.is_null() {
+        let max = ImVec2 {
+            x: pos.x + THUMB_W,
+            y: pos.y + THUMB_H,
+        };
+        ImDrawList_AddRect(list, pos, max, pack_color(color), BLOCK_ROUND, 0, BLOCK_THICK);
+    }
+    igDummy(ImVec2 {
+        x: THUMB_W,
+        y: THUMB_H,
+    });
+}
+
+fn winner_color(winner: u8) -> ImVec4 {
+    if winner == 0 {
+        COLOR_PORT_0
+    } else {
+        COLOR_PORT_1
+    }
+}
+
+unsafe fn paint_strip(parts: &scoreboard::DrawParts) {
+    for (index, cell) in parts.strip.iter().enumerate() {
+        if cell.stage_id == 0 {
+            continue;
+        }
+        if index > 0 {
+            igSameLine(0.0, THUMB_GAP);
+        }
+        let color = winner_color(cell.winner);
+        igBeginGroup();
+        if let Some(tag) = cell.tag.as_ref() {
+            paint(tag, color, false);
+        }
+        paint_thumb(color);
+        igEndGroup();
+    }
+}
+
+unsafe fn paint(text: &std::ffi::CString, color: ImVec4, same_line: bool) {
+    if same_line {
+        igSameLine(0.0, SAME_LINE_SPACING);
+    }
+    igPushStyleColor_Vec4(IMGUI_COL_TEXT, color);
+    igTextUnformatted(text.as_ptr(), std::ptr::null());
+    igPopStyleColor(1);
+}
+
 unsafe extern "C" fn draw() {
-    if scoreboard::should_show() && scoreboard::is_in_melee() {
-        let line = format!(
-            "SET  {}  FT{}\0",
-            scoreboard::hud_text().replace(" — ", "-"),
-            ruleset::set_length()
-        );
+    scoreboard::poll_missing_tags();
+    let (center_x, bottom_y, width, height) = window_anchor();
+    if !DRAW_LOGGED.swap(true, Ordering::Relaxed) {
+        logutil::write(&format!(
+            "score_overlay: draw {:.0}x{:.0} visible={}",
+            width,
+            height,
+            scoreboard::overlay_visible()
+        ));
+    }
+    if let Some(parts) = scoreboard::draw_parts() {
         igSetNextWindowPos(
-            ImVec2 { x: 960.0, y: 18.0 },
+            ImVec2 {
+                x: center_x,
+                y: bottom_y,
+            },
             IMGUI_COND_ALWAYS,
-            ImVec2 { x: 0.5, y: 0.0 },
+            ImVec2 { x: 0.5, y: 1.0 },
         );
         igSetNextWindowBgAlpha(0.45);
         if igBegin(
@@ -88,7 +269,29 @@ unsafe extern "C" fn draw() {
             std::ptr::null_mut(),
             SCORE_FLAGS,
         ) {
-            igTextUnformatted(line.as_ptr() as _, std::ptr::null());
+            if !parts.strip.is_empty() {
+                paint_strip(&parts);
+            }
+            let mut follow = false;
+            if let Some(tag) = parts.tag0.as_ref() {
+                paint(tag, COLOR_PORT_0, false);
+                follow = true;
+            }
+            follow = paint_marks(
+                parts.left,
+                COLOR_PORT_0,
+                follow,
+                if follow { SAME_LINE_SPACING } else { 0.0 },
+            );
+            follow = paint_marks(
+                parts.right,
+                COLOR_PORT_1,
+                follow,
+                if follow { GROUP_GAP } else { 0.0 },
+            );
+            if let Some(tag) = parts.tag1.as_ref() {
+                paint(tag, COLOR_PORT_1, follow);
+            }
         }
         igEnd();
     } else {
@@ -105,6 +308,7 @@ unsafe extern "C" fn draw() {
         );
         igEnd();
     }
+    scoreboard::advance_frame();
 }
 
 pub fn install() {

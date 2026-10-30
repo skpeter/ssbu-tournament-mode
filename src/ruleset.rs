@@ -1,16 +1,19 @@
-//! Set length from **ruleset preset name** (preferred) or TOML fallback.
+//! Set length from the selected Versus **ruleset preset name**.
 //!
-//! Leave in-game First to = **1 Win**. Software set length comes from the
-//! selected Versus preset name (`FT2` / `Competitive FT3` / …).
+//! Leave in-game First to = **1 Win**. Software set length comes from
+//! `FT2` / `Competitive FT3` / … in that name. A name without `FT` leaves
+//! the set at length 1.
 
 use crate::config;
 use crate::logutil;
 use crate::set_state;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
-static SET_LENGTH: AtomicU32 = AtomicU32::new(0);
+static SET_LENGTH: AtomicU32 = AtomicU32::new(1);
 static SET_LENGTH_SOURCE_NAME: AtomicBool = AtomicBool::new(false);
 static BOOT_DONE: AtomicBool = AtomicBool::new(false);
+static LAST_NAME_LOG: once_cell::sync::Lazy<std::sync::Mutex<String>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(String::new()));
 
 pub mod offsets {
     pub const GAME_END: usize = 0x14d6590;
@@ -18,10 +21,9 @@ pub mod offsets {
     pub const SCENE_TRANSITION: usize = 0x3726120;
     pub const SSS_TO_CSS: usize = 0x23357f8;
     pub const CSS_TO_SSS: usize = 0x2335184;
-    /// HW: UTF-16LE ruleset title (e.g. `"Competitive FT3"` / `"FT2"`).
+    /// HW: UTF-16LE ruleset title on 13.0.4 (e.g. `"Competitive FT3"` / `"FT2"`).
+    /// 13.0.5 is this plus `0x1000`.
     pub const RULESET_NAME_PRIMARY: usize = 0x530456c;
-    pub const RULESET_NAME_SCAN: usize = 0x5304000;
-    pub const RULESET_NAME_SCAN_LEN: usize = 0x1000;
 }
 
 fn text_base() -> usize {
@@ -58,18 +60,15 @@ pub fn parse_ft_from_name(name: &str) -> Option<u32> {
     found
 }
 
-pub fn set_override(n: u32) {
-    SET_LENGTH.store(n, Ordering::SeqCst);
-    SET_LENGTH_SOURCE_NAME.store(false, Ordering::SeqCst);
-    if n > 0 {
-        set_state::set_first_to(n);
-    }
-}
-
 fn apply_set_length(n: u32, source: &str, name: Option<&str>) {
+    let named = source == "name";
     let prev = SET_LENGTH.load(Ordering::SeqCst);
+    let prev_named = SET_LENGTH_SOURCE_NAME.load(Ordering::SeqCst);
+    if prev == n && prev_named == named {
+        return;
+    }
     SET_LENGTH.store(n, Ordering::SeqCst);
-    SET_LENGTH_SOURCE_NAME.store(source == "name", Ordering::SeqCst);
+    SET_LENGTH_SOURCE_NAME.store(named, Ordering::SeqCst);
     if n > 0 {
         set_state::set_first_to(n);
     }
@@ -136,79 +135,68 @@ fn name_looks_complete(s: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c.is_ascii_whitespace() || "-_./".contains(c))
 }
 
-unsafe fn try_name_at(text: usize, rel: usize) -> Option<(String, u32, usize)> {
-    let p = (text + rel) as *const u16;
-    let s = read_utf16_cstr(p, 40)?;
-    if !name_looks_complete(&s) {
-        return None;
+fn selected_name_rel() -> usize {
+    let version = skyline::nn::oe::get_display_version();
+    if crate::scoreboard::version_is_13_0_5_or_newer(&version) {
+        // 13.0.4 primary plus the 13.0.5 data slide.
+        0x530556c
+    } else {
+        offsets::RULESET_NAME_PRIMARY
     }
-    let n = parse_ft_from_name(&s)?;
-    Some((s, n, rel))
 }
 
-unsafe fn scan_for_ruleset_ft_name() -> Option<(String, u32, usize)> {
-    let text = text_base();
-
-    if let Some(hit) = try_name_at(text, offsets::RULESET_NAME_PRIMARY) {
-        return Some(hit);
+fn log_name_once(line: &str) {
+    let mut last = LAST_NAME_LOG.lock().unwrap();
+    if *last == line {
+        return;
     }
-
-    let base = text + offsets::RULESET_NAME_SCAN;
-    let end = base + offsets::RULESET_NAME_SCAN_LEN;
-    let mut best: Option<(String, u32, usize)> = None;
-    let mut addr = base;
-    while addr + 8 < end {
-        let p = addr as *const u16;
-        if *p == b'F' as u16 && *p.add(1) == b'T' as u16 {
-            let mut start = p;
-            for _ in 0..32 {
-                if (start as usize) <= base {
-                    break;
-                }
-                let prev = start.sub(1);
-                let u = *prev;
-                if u < 0x20 || u >= 0x7f {
-                    break;
-                }
-                start = prev;
-            }
-            let rel = (start as usize).saturating_sub(text);
-            if let Some((s, n, rel)) = try_name_at(text, rel) {
-                let better = match &best {
-                    None => true,
-                    Some((prev, _, _)) => s.len() > prev.len(),
-                };
-                if better {
-                    best = Some((s, n, rel));
-                }
-            }
-        }
-        addr += 2;
-    }
-    best
+    *last = line.to_string();
+    logutil::write(line);
 }
 
-/// Refresh set_length from ruleset name when entering MeleeRuleScene.
+unsafe fn read_selected_name() -> Option<String> {
+    let rel = selected_name_rel();
+    let p = (text_base() + rel) as *const u16;
+    let name = read_utf16_cstr(p, 40)?;
+    if name_looks_complete(&name) {
+        Some(name)
+    } else {
+        None
+    }
+}
+
+/// Read the selected Versus preset name. `FT2` / `FT3` sets the length.
+/// Any other name, or an unreadable slot, leaves the set at length 1.
 pub unsafe fn on_melee_rule_scene() {
     if !config::get().enabled {
         return;
     }
 
-    if let Some((name, n, rel)) = scan_for_ruleset_ft_name() {
-        logutil::write(&format!(
-            "ruleset_name: \"{}\" (@{:#x}) → set_length={}",
-            name, rel, n
-        ));
-        apply_set_length(n, "name", Some(&name));
-    } else {
-        logutil::write(&format!(
-            "ruleset_name: miss — toml set_length={}",
-            set_length()
-        ));
-    }
-
-    if set_length() > 1 {
-        set_state::set_first_to(set_length());
+    let rel = selected_name_rel();
+    match read_selected_name() {
+        Some(name) => match parse_ft_from_name(&name) {
+            Some(n) => {
+                log_name_once(&format!(
+                    "ruleset_name: \"{}\" (@{:#x}) → set_length={}",
+                    name, rel, n
+                ));
+                apply_set_length(n, "name", Some(&name));
+            }
+            None => {
+                log_name_once(&format!(
+                    "ruleset_name: \"{}\" has no FT — set_length=1",
+                    name
+                ));
+                apply_set_length(1, "none", None);
+            }
+        },
+        None => {
+            log_name_once(&format!(
+                "ruleset_name: unreadable @{:#x} — set_length=1",
+                rel
+            ));
+            apply_set_length(1, "none", None);
+        }
     }
 }
 
@@ -226,7 +214,7 @@ pub fn boot_probe() {
     logutil::write(&format!(
         "probe: text={:#x} set_length_from_ruleset_name primary={:#x}",
         text,
-        offsets::RULESET_NAME_PRIMARY
+        selected_name_rel()
     ));
     set_state::set_probe(Ok(()));
 }

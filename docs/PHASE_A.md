@@ -5,14 +5,13 @@ Must pass on **13.0.4** hardware (or a faithful emu) before Phase B/C feature wo
 ## Setup (v0.2.1+)
 
 1. Install `libssbu_tournament_mode.nro` **0.2.1+**
-2. `sd:/ultimate/tournament_mode.toml` with `enabled = true` and fallback `set_length = 3`
+2. `sd:/ultimate/tournament_mode.toml` with `enabled = true`
 3. **In-game First to = 1 Win** on every tournament preset
 4. Save named presets that include the FT, e.g. `Midwest FT2` and `Midwest FT3`
 5. Fresh log; remove `libcss_first.nro` if present
 
-Set length is read from the **selected ruleset name** (`FT2` / `FT3` token) when
-the MeleeRule BSS scan finds it — switch presets mid-bracket without reboot.
-TOML `set_length` is fallback only.
+Set length is read from the **selected ruleset name** (`FT2` / `FT3` token).
+Switch presets mid-bracket without reboot. A name without `FT` leaves the set inactive.
 
 Vanilla FT>1 is a different match machine; do not use it for tournament sets.
 
@@ -32,16 +31,15 @@ Vanilla FT>1 is a different match machine; do not use it for tournament sets.
 
 ```
 probe: ... approach=engine_FT1+set_length_from_ruleset_name
-config: set_length=3
-ruleset_name: hit text+0x... "Midwest FT3" → set_length=3
+ruleset_name: "Midwest FT3" (@0x...) → set_length=3
 ruleset[MeleeRule]: engine_ft_wins=1 set_length=3 src=name ...
 game_end: ... set_length=3 ...
 ```
 
-If the name scan misses (name not in BSS yet):
+If the selected name has no `FT`:
 
 ```
-ruleset_name: no UTF-16 FT# name in BSS scan — using toml set_length
+ruleset_name: "Standard" has no FT — set_length=1
 ```
 
 Pinned primary name slot (0.2.2+): `text+0x530456c` (e.g. `"Competitive FT3"`).

@@ -6,6 +6,15 @@ use crate::set_state;
 use crate::strike;
 use crate::FIGHTER_MANAGER_ADDR;
 use skyline_smash::app::{self, lua_bind::*};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static ZERO_STAGE_LOGGED: AtomicBool = AtomicBool::new(false);
+
+fn log_zero_stage_once() {
+    if !ZERO_STAGE_LOGGED.swap(true, Ordering::Relaxed) {
+        logutil::write("win: stage id 0, no strip cell");
+    }
+}
 
 /// Best-effort: after a game, decide winner from stocks (stock matches).
 pub unsafe fn try_attribute_from_fighter_manager() {
@@ -46,12 +55,19 @@ pub unsafe fn try_attribute_from_fighter_manager() {
     };
 
     if let Some(w) = winner {
+        let stage_id = app::stage::get_stage_id();
+        if crate::board_visibility::stage_for_strip(stage_id).is_none() {
+            log_zero_stage_once();
+        } else {
+            set_state::push_played(stage_id, w);
+        }
         let done = set_state::record_win(w, None);
         logutil::write(&format!(
-            "win: P{} (stocks {}-{}) set={} ft={} done={}",
+            "win: P{} (stocks {}-{}) stage={} set={} ft={} done={}",
             w + 1,
             stocks[0],
             stocks[1],
+            stage_id,
             set_state::score_line(),
             ruleset::set_length(),
             done

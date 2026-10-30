@@ -16,11 +16,14 @@ See [PLAN.md](PLAN.md) for the full reviewed design.
 
 **Approach:** leave **in-game First to = 1 Win**. Set length comes from the
 **ruleset preset name** (`FT2` / `Midwest FT3`) so you can switch mid-bracket
-without reboot. TOML `set_length` is fallback.
+without reboot. A preset name without `FT` leaves the set inactive.
 
 Game-1 who-bans-first is **IRL only**. Phase D: in-match score is an
 **imgui-smash** overlay (same host as ssbu-online-deluxe). Needs
 `libimgui_smash.nro`. Do not use skyline-web toasts mid-scene.
+The proximity hide also needs **one** smashline runtime NRO already on the card
+(`libsmashline_plugin.nro` or `libsmashline_hook.nro`, not both). This plugin
+does not ship that NRO. Both files together crash after character select.
 
 See [docs/PHASE_D.md](docs/PHASE_D.md).
 
@@ -35,9 +38,8 @@ Requires [ARCropolis](https://github.com/Raytwo/ARCropolis/releases) (includes S
 3. Extract the zip onto the SD root
 4. Copy `config/tournament_mode.toml.example` → `sd:/ultimate/tournament_mode.toml`
 5. Save Versus presets named e.g. `Midwest FT2` and `Midwest FT3`, each with **First to = 1 Win**
-6. Keep `set_length = 3` in TOML as fallback if the name scan misses
-7. Install the **Midwest Stagelist SSS + Striking** pack (companion; striking in Phase C)
-8. Boot, select a named preset, read `sd:/tournament_mode.log` for `ruleset_name: hit …`
+6. Install the **Midwest Stagelist SSS + Striking** pack (companion; striking in Phase C)
+7. Boot, select a named preset, read `sd:/tournament_mode.log` for `ruleset_name:`
 
 Plugin path:
 
@@ -57,6 +59,7 @@ Hold **L** on boot to skip plugins if something panics.
 | results-screen-skip / Auto-Save Replays / smush_info HID skip | Fight over results input; prefer one results owner. |
 | Training Modpack | Usually OK offline. |
 | **libimgui_smash.nro** | **Required** for the in-match score overlay (same host plugin [ssbu-online-deluxe](https://github.com/saad-script/ssbu-online-deluxe) uses). Download from [imgui-smash releases](https://github.com/Coolsonickirby/imgui-smash/releases). |
+| **one smashline NRO** | **Required** for the world-Y hide. Exactly one of `libsmashline_plugin.nro` or `libsmashline_hook.nro` in the skyline plugins folder. If HDR or another pack already installed one, do not add a second. Both crash after character select. This plugin does not copy either NRO. |
 
 ## Build
 

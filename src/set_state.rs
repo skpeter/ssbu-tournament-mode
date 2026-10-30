@@ -2,6 +2,13 @@ use crate::logutil;
 use once_cell::sync::OnceCell;
 use std::sync::Mutex;
 
+/// One finished game. `stage_id` is `app::stage::get_stage_id`. `winner` is 0 or 1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlayedGame {
+    pub stage_id: i32,
+    pub winner: u8,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SetPhase {
     Idle,
@@ -22,6 +29,8 @@ pub struct SetState {
     pub game1_winner: Option<u8>,
     /// Stages (panel ids) each side has won on this set (DSR).
     pub won_stages: [Vec<i32>; 2],
+    /// Games in this set, in play order. Repeats stay. Not the strike list.
+    pub played: Vec<PlayedGame>,
     pub last_scene: String,
     pub probe_ok: bool,
     pub inert_reason: String,
@@ -36,6 +45,7 @@ impl Default for SetState {
             games_played: 0,
             game1_winner: None,
             won_stages: [Vec::new(), Vec::new()],
+            played: Vec::new(),
             last_scene: String::new(),
             probe_ok: false,
             inert_reason: "boot".to_string(),
@@ -107,6 +117,19 @@ pub fn reset(reason: &str) {
     reset_inner(&mut s, reason);
 }
 
+/// Next set after first-to. Keeps the ruleset length and the probe.
+pub fn begin_next_set() {
+    let mut s = lock();
+    s.wins = [0, 0];
+    s.games_played = 0;
+    s.game1_winner = None;
+    s.won_stages = [Vec::new(), Vec::new()];
+    s.played.clear();
+    s.phase = SetPhase::InSet;
+    s.inert_reason.clear();
+    logutil::write("set: next set 0-0");
+}
+
 fn reset_inner(s: &mut SetState, reason: &str) {
     let first_to = s.first_to;
     let probe_ok = s.probe_ok;
@@ -118,6 +141,24 @@ fn reset_inner(s: &mut SetState, reason: &str) {
     }
     s.inert_reason = reason.to_string();
     logutil::write(&format!("set: reset ({})", reason));
+}
+
+/// Append one played game. Does not write `won_stages`.
+/// A zero stage id is ignored. Returns false when the set is not tracking games.
+pub fn push_played(stage_id: i32, winner: u8) -> bool {
+    if stage_id == 0 || winner > 1 {
+        return false;
+    }
+    let mut s = lock();
+    if s.first_to <= 1 || !s.probe_ok {
+        return false;
+    }
+    let cap = (s.first_to.saturating_mul(2).saturating_sub(1)) as usize;
+    if s.played.len() >= cap {
+        return false;
+    }
+    s.played.push(PlayedGame { stage_id, winner });
+    true
 }
 
 /// Record a game win for `side` (0 or 1). Returns true if the set is now complete.
@@ -155,4 +196,48 @@ pub fn record_win(side: u8, stage_panel: Option<i32>) -> bool {
 pub fn score_line() -> String {
     let s = lock();
     format!("{}-{}", s.wins[0], s.wins[1])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tracking_set() {
+        reset("test");
+        set_probe(Ok(()));
+        set_first_to(2);
+    }
+
+    #[test]
+    fn played_list_keeps_order_and_leaves_strike_list() {
+        tracking_set();
+        assert!(!push_played(0, 0));
+        assert!(push_played(4, 0));
+        assert!(push_played(4, 1));
+        let snap = snapshot();
+        assert_eq!(
+            snap.played,
+            vec![
+                PlayedGame {
+                    stage_id: 4,
+                    winner: 0
+                },
+                PlayedGame {
+                    stage_id: 4,
+                    winner: 1
+                },
+            ]
+        );
+        assert!(snap.won_stages[0].is_empty());
+        assert!(snap.won_stages[1].is_empty());
+
+        let _ = record_win(0, None);
+        let after_win = snapshot();
+        assert!(after_win.won_stages[0].is_empty());
+        assert_eq!(after_win.played.len(), 2);
+
+        begin_next_set();
+        assert!(snapshot().played.is_empty());
+        reset("test-done");
+    }
 }

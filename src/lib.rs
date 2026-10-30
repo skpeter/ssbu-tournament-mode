@@ -1,5 +1,6 @@
 #![feature(proc_macro_hygiene)]
 
+mod board_visibility;
 mod config;
 mod css_first;
 mod hashed_string;
@@ -18,23 +19,6 @@ mod win;
 use skyline::nn::ro::LookupSymbol;
 
 pub static mut FIGHTER_MANAGER_ADDR: usize = 0;
-
-fn parse_u32_key(text: &str, key: &str) -> Option<u32> {
-    for raw in text.lines() {
-        let line = raw.split('#').next().unwrap_or("").trim();
-        if let Some(rest) = line.strip_prefix(key) {
-            let val = rest
-                .trim()
-                .trim_start_matches('=')
-                .trim()
-                .trim_matches('"');
-            if let Ok(n) = val.parse::<u32>() {
-                return Some(n);
-            }
-        }
-    }
-    None
-}
 
 unsafe fn try_lookup_fighter_manager() {
     LookupSymbol(
@@ -57,15 +41,7 @@ pub fn main() {
     logutil::write("version=0.3.10 target<=13.0.4");
 
     config::load();
-    if let Ok(text) = std::fs::read_to_string("sd:/ultimate/tournament_mode.toml") {
-        let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
-        let n = parse_u32_key(text, "set_length")
-            .or_else(|| parse_u32_key(text, "first_to_override"));
-        if let Some(n) = n {
-            ruleset::set_override(n);
-            logutil::write(&format!("config: set_length={}", n));
-        }
-    }
+    scoreboard::warn_if_both_smashline_nros();
 
     ruleset::boot_probe();
     unsafe {

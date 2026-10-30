@@ -26,13 +26,18 @@ unsafe fn game_end(game_state: u64) {
         win::try_attribute_from_fighter_manager();
         // Intentionally no DialogOk / toast — crashes mid-flow and is the wrong UX.
         logutil::write(&format!(
-            "scoreboard: set now {} (show in-match next game)",
+            "scoreboard: set now {} (stay up through results)",
             set_state::score_line()
         ));
     }
-    scoreboard::on_melee_leave();
+    scoreboard::on_game_end();
 }
 
+// Not installed. Skyline's trampoline map aborts the process (MapProcessMemory
+// 0xD401, then a store to 0x69) once smashline has filled the nearby code
+// pool. game_exit only logged and called the original, so leaving it unhooked
+// keeps the scoreboard up through results the same way.
+#[allow(dead_code)]
 #[skyline::hook(offset = 0x14d7ef0)]
 unsafe fn game_exit(game_state: u64, arg: u64) {
     logutil::write(&format!(
@@ -42,15 +47,14 @@ unsafe fn game_exit(game_state: u64, arg: u64) {
         ruleset::set_length()
     ));
     call_original!(game_state, arg);
-    scoreboard::on_melee_leave();
 }
 
 pub fn note_melee_start() {
     WIN_ATTRIBUTED.store(false, Ordering::SeqCst);
-    scoreboard::on_melee_enter();
+    scoreboard::on_melee_scene();
 }
 
 pub fn install() {
-    skyline::install_hooks!(game_end, game_exit);
+    skyline::install_hooks!(game_end);
     logutil::write("results: game_end observe + win attribute (no toast)");
 }

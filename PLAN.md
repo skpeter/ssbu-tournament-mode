@@ -2,7 +2,7 @@
 
 ## Goal
 
-Ship a Skyline + ARCropolis package for Super Smash Bros. Ultimate (target up to **13.0.4**) that makes local Versus behave like Rivals of Aether 2 tournament/set mode when config **`set_length` > 1** (in-game First to stays at **1 Win**):
+Ship a Skyline + ARCropolis package for Super Smash Bros. Ultimate (target up to **13.0.4**) that makes local Versus behave like Rivals of Aether 2 tournament/set mode when the ruleset name contains **`FT2` / `FT3`** (in-game First to stays at **1 Win**):
 
 1. Show the full results screen after every game (so replays can be saved).
 2. Return players to CSS + SSS between every game of the set (characters and stages reselectable).
@@ -26,7 +26,7 @@ Ship a Skyline + ARCropolis package for Super Smash Bros. Ultimate (target up to
   machine; we do not spoof it. Engine FT1 gives results + CSS/SSS for free.
 - **Set length source (preferred):** selected Versus **preset name** containing
   `FT2` / `FT3` / `FT n` (e.g. `Midwest FT3`). Switching presets mid-bracket
-  updates length without reboot. TOML `set_length` is fallback only.
+  updates length without reboot. A name without `FT` leaves the set inactive.
 - When set length ≤ 1, plugin is inert for set logic (CSS-first may still run).
 
 ### Set flow
