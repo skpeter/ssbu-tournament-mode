@@ -136,8 +136,8 @@ const BLOCK_ROUND: f32 = 2.0;
 const BLOCK_THICK: f32 = 2.0;
 const STRIP_GAP: f32 = 10.0;
 const EDGE_MARGIN: f32 = 24.0;
-/// Window fill. Light enough that the stage stays readable behind the text.
-const WINDOW_BG_ALPHA: f32 = 0.25;
+/// Window fill. Dark enough that the text stays readable over the stage.
+const WINDOW_BG_ALPHA: f32 = 0.8;
 /// imgui 1.92 `ImGuiStyleVar_WindowPadding` / `ImGuiStyleVar_ItemSpacing`.
 const STYLE_WINDOW_PADDING: i32 = 2;
 const STYLE_ITEM_SPACING: i32 = 14;

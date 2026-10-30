@@ -237,10 +237,10 @@ pub fn pick_played_stage(selected: i32, loaded: i32, cached: Option<i32>) -> Opt
 }
 
 /// `nn::oe::GetOperationMode`: handheld and tabletop are 0, docked TV is 1.
-/// Docked text is 3x. Handheld stays at the original size.
+/// Docked text is 2x. Handheld stays at the original size.
 pub fn hud_font_scale(operation_mode: i32) -> f32 {
     if operation_mode == 1 {
-        3.0
+        2.0
     } else {
         1.0
     }
@@ -518,9 +518,9 @@ mod tests {
     }
 
     #[test]
-    fn docked_text_is_triple_handheld_stays() {
+    fn docked_text_is_double_handheld_stays() {
         assert_eq!(hud_font_scale(0), 1.0);
-        assert_eq!(hud_font_scale(1), 3.0);
+        assert_eq!(hud_font_scale(1), 2.0);
         assert_eq!(hud_font_scale(2), 1.0);
     }
 
