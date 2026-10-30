@@ -1,0 +1,97 @@
+name: Build and release NRO
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nro-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_SKYLINE_VERSION: "3.5.0"
+  IMGUI_SMASH_A_URL: "https://github.com/Coolsonickirby/imgui-smash/releases/download/v1.0.0/libimgui_smash.a"
+
+jobs:
+  nro:
+    name: Build NRO
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-skyline
+        run: cargo install cargo-skyline --version "${CARGO_SKYLINE_VERSION}" --locked
+
+      - name: Install skyline toolchain
+        run: cargo skyline update-std
+
+      - name: Fetch imgui-smash static library
+        run: |
+          mkdir -p lib
+          curl -fsSL -o lib/libimgui_smash.a "${IMGUI_SMASH_A_URL}"
+          test -s lib/libimgui_smash.a
+
+      - name: Build release NRO
+        run: cargo skyline build --release
+
+      - name: Read version
+        id: meta
+        run: |
+          VERSION=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          test -n "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Package SD zip
+        run: |
+          bash scripts/package-sd.sh
+          cp ssbu-tournament-mode-sd.zip "ssbu-tournament-mode-${{ steps.meta.outputs.version }}-sd.zip"
+          test -f target/aarch64-skyline-switch/release/libssbu_tournament_mode.nro
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssbu-tournament-mode-${{ steps.meta.outputs.version }}
+          path: |
+            target/aarch64-skyline-switch/release/libssbu_tournament_mode.nro
+            ssbu-tournament-mode-${{ steps.meta.outputs.version }}-sd.zip
+
+      - name: Publish GitHub release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          make_latest: "true"
+          body: |
+            Built from `${{ github.sha }}`.
+
+            Extract `ssbu-tournament-mode-${{ steps.meta.outputs.version }}-sd.zip` onto the SD card root.
+            Requires [ARCropolis](https://github.com/Raytwo/ARCropolis/releases). Remove `libcss_first.nro` if it is on the card.
+            The scoreboard also needs [`libimgui_smash.nro`](https://github.com/Coolsonickirby/imgui-smash/releases) and exactly one smashline runtime NRO. This zip does not include those.
+          files: |
+            target/aarch64-skyline-switch/release/libssbu_tournament_mode.nro
+            ssbu-tournament-mode-${{ steps.meta.outputs.version }}-sd.zip
+
+      - name: Point version tag at this commit
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method PATCH \
+            "repos/${{ github.repository }}/git/refs/tags/${{ steps.meta.outputs.tag }}" \
+            -f sha="${{ github.sha }}"
