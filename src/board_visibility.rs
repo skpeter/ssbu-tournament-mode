@@ -156,11 +156,25 @@ pub fn wins_after_melee_enter(set_complete: bool, wins: [u32; 2]) -> [u32; 2] {
 }
 
 /// The stage strip is on stage select, and only while the one-line board is up.
-/// The game thumbnail is `ui/replace/stage/stage_0_<key>.bntx`. That file is a
-/// BNTX, and `igImage` needs a decoded texture, so the cell is a frame until
-/// a stage id can be tied to a key.
 pub fn strip_visible(board_up: bool, place: Place) -> bool {
     board_up && place == Place::Sss
+}
+
+/// Names for the stage ids this plugin records. Ids outside the list have no name.
+pub fn stage_name(stage_id: i32) -> Option<&'static str> {
+    Some(match stage_id {
+        2 => "Town and City",
+        4 => "Smashville",
+        120 => "Small Battlefield",
+        121 => "Battlefield",
+        255 => "Final Destination",
+        260 => "Northern Cave",
+        318 => "Kalos Pokemon League",
+        320 => "Pokemon Stadium 2",
+        343 => "Hollow Bastion",
+        352 => "Yoshi's Story",
+        _ => return None,
+    })
 }
 
 /// Zero is not a stage. Anything else can become a strip cell.
@@ -180,11 +194,7 @@ pub struct StripCell {
 }
 
 /// One cell per played game, in order. A missing tag is omitted. Repeats stay.
-pub fn strip_cells(
-    games: &[(i32, u8)],
-    tag0: Option<&str>,
-    tag1: Option<&str>,
-) -> Vec<StripCell> {
+pub fn strip_cells(games: &[(i32, u8)], tag0: Option<&str>, tag1: Option<&str>) -> Vec<StripCell> {
     games
         .iter()
         .filter_map(|(stage_id, winner)| {
@@ -395,6 +405,22 @@ mod tests {
         assert_eq!(missing.len(), 1);
         assert!(missing[0].tag.is_none());
         assert!(stage_for_strip(0).is_none());
+    }
+
+    #[test]
+    fn stage_names_cover_the_manual_list() {
+        assert_eq!(stage_name(121), Some("Battlefield"));
+        assert_eq!(stage_name(255), Some("Final Destination"));
+        assert_eq!(stage_name(318), Some("Kalos Pokemon League"));
+        assert_eq!(stage_name(320), Some("Pokemon Stadium 2"));
+        assert_eq!(stage_name(4), Some("Smashville"));
+        assert_eq!(stage_name(2), Some("Town and City"));
+        assert_eq!(stage_name(352), Some("Yoshi's Story"));
+        assert_eq!(stage_name(120), Some("Small Battlefield"));
+        assert_eq!(stage_name(260), Some("Northern Cave"));
+        assert_eq!(stage_name(343), Some("Hollow Bastion"));
+        assert_eq!(stage_name(0), None);
+        assert_eq!(stage_name(215), None);
     }
 
     #[test]

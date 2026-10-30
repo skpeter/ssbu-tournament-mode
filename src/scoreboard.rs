@@ -11,8 +11,8 @@
 
 use crate::board_visibility::{
     band_this_frame, board_visible, line_parts, place_for_scene, score_marks, should_sample,
-    strip_cells, strip_visible, wins_after_melee_enter, BoardView, HeightSample, Place, ScoreMarks,
-    StripCell, WORLD_Y_BAND,
+    stage_name, strip_cells, strip_visible, wins_after_melee_enter, BoardView, HeightSample, Place,
+    ScoreMarks, StripCell, WORLD_Y_BAND,
 };
 use crate::config;
 use crate::logutil;
@@ -30,8 +30,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 
 const TAG_CHARS: usize = 10;
-const PLUGINS_DIR: &str =
-    "sd:/atmosphere/contents/01006A800016E000/romfs/skyline/plugins";
+const PLUGINS_DIR: &str = "sd:/atmosphere/contents/01006A800016E000/romfs/skyline/plugins";
 
 struct DrawCache {
     tag0: Option<String>,
@@ -57,6 +56,7 @@ pub struct DrawParts {
 
 pub struct StripPart {
     pub tag: Option<CString>,
+    pub name: CString,
     pub winner: u8,
     pub stage_id: i32,
 }
@@ -192,10 +192,7 @@ pub fn on_melee_scene() {
     reread_tags();
     crate::hud_layout::on_melee_enter();
     if config::get().scoreboard && overlay_visible() {
-        logutil::write(&format!(
-            "scoreboard: melee place text='{}'",
-            hud_text()
-        ));
+        logutil::write(&format!("scoreboard: melee place text='{}'", hud_text()));
     }
 }
 
@@ -254,24 +251,32 @@ fn strip_parts(snap: &set_state::SetState, board: &BoardRuntime) -> Vec<StripPar
 }
 
 fn strip_part(cell: StripCell) -> StripPart {
-    note_missing_thumb(cell.stage_id);
     StripPart {
         tag: cell.tag.and_then(|text| CString::new(text).ok()),
+        name: stage_label(cell.stage_id),
         winner: cell.winner,
         stage_id: cell.stage_id,
     }
 }
 
-fn note_missing_thumb(stage_id: i32) {
-    static SEEN: OnceCell<Mutex<Vec<i32>>> = OnceCell::new();
-    let mut seen = SEEN.get_or_init(|| Mutex::new(Vec::new())).lock().unwrap();
-    if seen.contains(&stage_id) {
-        return;
+fn stage_label(stage_id: i32) -> CString {
+    if let Some(name) = stage_name(stage_id) {
+        return CString::new(name).unwrap_or_else(|_| CString::new("stage").unwrap());
     }
-    seen.push(stage_id);
-    logutil::write(&format!(
-        "stage thumb: id {stage_id} has no file key, cell has no picture"
-    ));
+    unknown_stage_label(stage_id)
+}
+
+fn unknown_stage_label(stage_id: i32) -> CString {
+    static SEEN: OnceCell<Mutex<Vec<(i32, CString)>>> = OnceCell::new();
+    let mut seen = SEEN.get_or_init(|| Mutex::new(Vec::new())).lock().unwrap();
+    if let Some((_, label)) = seen.iter().find(|(id, _)| *id == stage_id) {
+        return label.clone();
+    }
+    logutil::write(&format!("stage name: id {stage_id} has no mapping"));
+    let label =
+        CString::new(stage_id.to_string()).unwrap_or_else(|_| CString::new("stage").unwrap());
+    seen.push((stage_id, label.clone()));
+    label
 }
 
 /// The match tag buffer is empty on the first character select and filled
@@ -399,9 +404,7 @@ fn read_tag(player_index: usize) -> Option<String> {
 
 fn log_bad_tag_once() {
     if !TAG_OFFSET_LOGGED.swap(true, Ordering::SeqCst) {
-        logutil::write(
-            "scoreboard: tag read failed; drawing the score without tags",
-        );
+        logutil::write("scoreboard: tag read failed; drawing the score without tags");
     }
 }
 

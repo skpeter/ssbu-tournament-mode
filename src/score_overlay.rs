@@ -120,9 +120,7 @@ const BLOCK_GAP: f32 = 4.0;
 const GROUP_GAP: f32 = 22.0;
 const BLOCK_ROUND: f32 = 2.0;
 const BLOCK_THICK: f32 = 2.0;
-const THUMB_W: f32 = 64.0;
-const THUMB_H: f32 = 36.0;
-const THUMB_GAP: f32 = 10.0;
+const STRIP_GAP: f32 = 10.0;
 static DRAW_LOGGED: AtomicBool = AtomicBool::new(false);
 
 unsafe fn window_anchor() -> (f32, f32, f32, f32) {
@@ -157,7 +155,12 @@ fn pack_color(color: ImVec4) -> u32 {
     r | (g << 8) | (b << 16) | (a << 24)
 }
 
-unsafe fn paint_marks(marks: ScoreMarks, color: ImVec4, mut same_line: bool, leading_gap: f32) -> bool {
+unsafe fn paint_marks(
+    marks: ScoreMarks,
+    color: ImVec4,
+    mut same_line: bool,
+    leading_gap: f32,
+) -> bool {
     let list = igGetWindowDrawList();
     if list.is_null() {
         return same_line;
@@ -192,22 +195,6 @@ unsafe fn paint_marks(marks: ScoreMarks, color: ImVec4, mut same_line: bool, lea
     same_line
 }
 
-unsafe fn paint_thumb(color: ImVec4) {
-    let list = igGetWindowDrawList();
-    let pos = igGetCursorScreenPos();
-    if !list.is_null() {
-        let max = ImVec2 {
-            x: pos.x + THUMB_W,
-            y: pos.y + THUMB_H,
-        };
-        ImDrawList_AddRect(list, pos, max, pack_color(color), BLOCK_ROUND, 0, BLOCK_THICK);
-    }
-    igDummy(ImVec2 {
-        x: THUMB_W,
-        y: THUMB_H,
-    });
-}
-
 fn winner_color(winner: u8) -> ImVec4 {
     if winner == 0 {
         COLOR_PORT_0
@@ -222,14 +209,14 @@ unsafe fn paint_strip(parts: &scoreboard::DrawParts) {
             continue;
         }
         if index > 0 {
-            igSameLine(0.0, THUMB_GAP);
+            igSameLine(0.0, STRIP_GAP);
         }
         let color = winner_color(cell.winner);
         igBeginGroup();
         if let Some(tag) = cell.tag.as_ref() {
             paint(tag, color, false);
         }
-        paint_thumb(color);
+        paint(&cell.name, color, false);
         igEndGroup();
     }
 }
@@ -317,9 +304,7 @@ pub fn install() {
         return;
     }
     if !std::path::Path::new(HOST_NRO).exists() {
-        logutil::write(
-            "score_overlay: missing libimgui_smash.nro — overlay host not loaded",
-        );
+        logutil::write("score_overlay: missing libimgui_smash.nro — overlay host not loaded");
         return;
     }
 

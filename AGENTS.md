@@ -8,6 +8,7 @@
 - v1 proximity hide is a smashline world-Y cutoff. Do not call `world_to_screen` from fighter Main (that crashed smush_info on the KO camera). Screen-space overlap is a later follow-up.
 - Prefer SSS on-screen chrome from Midwest Lua / layout.arc over Rust hijacking random SSS text panes.
 - Game-1 who-bans-first / RPS is IRL-only — do not reintroduce in-plugin RPS or L/R confirm UI; scoreboard HUD is higher priority.
+- Stage-history strip is stage-select only, drawn with imgui-smash as text and rects: the winner's tag above each played stage, no character stock icon. The in-match scoreboard stays the one-line win grid.
 
 ## Learned Workspace Facts
 
@@ -19,5 +20,6 @@
 - Stage striking depends on the companion Midwest Stagelist SSS + Striking pack (separate from this plugin).
 - SSS prompt/score chrome should be driven by Midwest `stage_select_actor3` via `TournamentMode.*` and/or a real layout.arc, not Rust pane-name guessing.
 - FTP deploy (sys-ftpd) is used for flashing builds/logs; do not store host/credentials in repo docs.
-- In-match drawing uses imgui-smash: `libimgui_smash.nro` on the SD plus linked `libimgui_smash.a`. Skyline `LookupSymbol` does not resolve `igBegin`/`igText`.
+- In-match drawing uses imgui-smash: `libimgui_smash.nro` on the SD plus linked `libimgui_smash.a`. Skyline `LookupSymbol` does not resolve `igBegin`/`igText`. That build cannot draw plugin-supplied images (PNG or the game's BNTX stage thumbnails): `igImage` does not upload pixels, the NVN backend only has the font texture, and passing a user texture can fault the game.
+- `app::stage::get_stage_id` returns a number, not a display name or thumbnail key. Names live in `ui_stage_db` plus `ui/message/message_name`; this plugin has no verified lookup. Do not guess an id-to-name or id-to-thumbnail-key table. A zero id is not a strip cell, and one logged nonzero id is not a permanent mapping.
 - Scoreboard fighter-height samples use smashline. Do not install both `libsmashline_plugin.nro` and `libsmashline_hook.nro` (that pair crashes after character select). Do not copy smush_info's match feed, sockets, or replay dump.
