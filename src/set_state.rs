@@ -82,15 +82,6 @@ pub fn set_probe(result: Result<(), &'static str>) {
     }
 }
 
-pub fn is_active() -> bool {
-    let s = lock();
-    crate::config::get().enabled
-        && s.probe_ok
-        && s.first_to > 1
-        && s.phase != SetPhase::Idle
-        && s.phase != SetPhase::Complete
-}
-
 pub fn set_first_to(n: u32) {
     let mut s = lock();
     s.first_to = n.max(1);
@@ -112,6 +103,7 @@ pub fn note_scene(scene: &str) {
     }
 }
 
+#[cfg(test)]
 pub fn reset(reason: &str) {
     let mut s = lock();
     reset_inner(&mut s, reason);

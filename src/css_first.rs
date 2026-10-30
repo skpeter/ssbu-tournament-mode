@@ -228,9 +228,10 @@ unsafe fn css_advance_sfx_hook(_ctx: &mut InlineCtx) {
     if !config::get().css_first {
         return;
     }
+    let css_first = std::ptr::addr_of!(CSS_FIRST).read();
     logutil::write(&format!(
         "css_advance: start pressed css_first_active={}",
-        CSS_FIRST
+        css_first
     ));
 }
 

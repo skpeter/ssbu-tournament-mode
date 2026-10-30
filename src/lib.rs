@@ -22,16 +22,14 @@ pub static mut FIGHTER_MANAGER_ADDR: usize = 0;
 
 unsafe fn try_lookup_fighter_manager() {
     LookupSymbol(
-        &mut FIGHTER_MANAGER_ADDR,
+        std::ptr::addr_of_mut!(FIGHTER_MANAGER_ADDR),
         b"_ZN3lib9SingletonIN3app14FighterManagerEE9instance_E\0".as_ptr(),
     );
-    if FIGHTER_MANAGER_ADDR == 0 {
+    let addr = std::ptr::addr_of!(FIGHTER_MANAGER_ADDR).read();
+    if addr == 0 {
         logutil::write("lookup: FighterManager FAILED");
     } else {
-        logutil::write(&format!(
-            "lookup: FighterManager {:#x}",
-            FIGHTER_MANAGER_ADDR
-        ));
+        logutil::write(&format!("lookup: FighterManager {:#x}", addr));
     }
 }
 

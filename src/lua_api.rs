@@ -42,6 +42,7 @@ unsafe fn push_new_singleton(
     lua::bindings::auxsetstr(lua_state, value, real_name.as_ptr() as _);
 }
 
+#[allow(dead_code)]
 extern "C" {
     fn add_to_key_context(ctx: &skyline::hooks::InlineCtx);
 }
@@ -110,96 +111,72 @@ unsafe fn add_to_key_context_hook(ctx: &skyline::hooks::InlineCtx) {
 }
 
 extern "C" fn tm_is_present(state: *mut lua::lua_State) -> i32 {
-    unsafe {
-        lua::lua_pushboolean(state, strike::api_is_present() as i32);
-        1
-    }
+    lua::lua_pushboolean(state, strike::api_is_present() as i32);
+    1
 }
 
 extern "C" fn tm_is_active(state: *mut lua::lua_State) -> i32 {
-    unsafe {
-        lua::lua_pushboolean(state, strike::api_is_active() as i32);
-        1
-    }
+    lua::lua_pushboolean(state, strike::api_is_active() as i32);
+    1
 }
 
 extern "C" fn tm_get_set_length(state: *mut lua::lua_State) -> i32 {
-    unsafe {
-        lua::lua_pushinteger(state, ruleset::set_length() as i64);
-        1
-    }
+    lua::lua_pushinteger(state, ruleset::set_length() as i64);
+    1
 }
 
 extern "C" fn tm_get_score_p1(state: *mut lua::lua_State) -> i32 {
-    unsafe {
-        lua::lua_pushinteger(state, set_state::snapshot().wins[0] as i64);
-        1
-    }
+    lua::lua_pushinteger(state, set_state::snapshot().wins[0] as i64);
+    1
 }
 
 extern "C" fn tm_get_score_p2(state: *mut lua::lua_State) -> i32 {
-    unsafe {
-        lua::lua_pushinteger(state, set_state::snapshot().wins[1] as i64);
-        1
-    }
+    lua::lua_pushinteger(state, set_state::snapshot().wins[1] as i64);
+    1
 }
 
 extern "C" fn tm_get_score_line(state: *mut lua::lua_State) -> i32 {
-    unsafe {
-        let line = scoreboard::hud_text();
-        let c = std::ffi::CString::new(line).unwrap_or_default();
-        lua::lua_pushstring(state, c.as_ptr());
-        1
-    }
+    let line = scoreboard::hud_text();
+    let c = std::ffi::CString::new(line).unwrap_or_default();
+    lua::lua_pushstring(state, c.as_ptr());
+    1
 }
 
 extern "C" fn tm_get_games_played(state: *mut lua::lua_State) -> i32 {
-    unsafe {
-        lua::lua_pushinteger(state, set_state::snapshot().games_played as i64);
-        1
-    }
+    lua::lua_pushinteger(state, set_state::snapshot().games_played as i64);
+    1
 }
 
 extern "C" fn tm_get_strike_controller(state: *mut lua::lua_State) -> i32 {
-    unsafe {
-        // 0 = ungated (game 1 / IRL ban order); 1/2 = active striking port.
-        let c = strike::active_controller().map(|p| (p + 1) as i64).unwrap_or(0);
-        lua::lua_pushinteger(state, c);
-        1
-    }
+    // 0 = ungated (game 1 / IRL ban order); 1/2 = active striking port.
+    let c = strike::active_controller().map(|p| (p + 1) as i64).unwrap_or(0);
+    lua::lua_pushinteger(state, c);
+    1
 }
 
 extern "C" fn tm_get_prompt(state: *mut lua::lua_State) -> i32 {
-    unsafe {
-        let prompt = strike::refresh_prompt();
-        let c = std::ffi::CString::new(prompt).unwrap_or_default();
-        lua::lua_pushstring(state, c.as_ptr());
-        1
-    }
+    let prompt = strike::refresh_prompt();
+    let c = std::ffi::CString::new(prompt).unwrap_or_default();
+    lua::lua_pushstring(state, c.as_ptr());
+    1
 }
 
 extern "C" fn tm_record_ban(state: *mut lua::lua_State) -> i32 {
-    unsafe {
-        let picking = strike::record_ban();
-        lua::lua_pushboolean(state, picking as i32);
-        1
-    }
+    let picking = strike::record_ban();
+    lua::lua_pushboolean(state, picking as i32);
+    1
 }
 
 extern "C" fn tm_is_css_first(state: *mut lua::lua_State) -> i32 {
-    unsafe {
-        lua::lua_pushboolean(state, css_first::is_css_first_active() as i32);
-        1
-    }
+    lua::lua_pushboolean(state, css_first::is_css_first_active() as i32);
+    1
 }
 
 extern "C" fn tm_get_strike_preset(state: *mut lua::lua_State) -> i32 {
-    unsafe {
-        let preset = strike::snapshot().preset;
-        let c = std::ffi::CString::new(preset).unwrap_or_default();
-        lua::lua_pushstring(state, c.as_ptr());
-        1
-    }
+    let preset = strike::snapshot().preset;
+    let c = std::ffi::CString::new(preset).unwrap_or_default();
+    lua::lua_pushstring(state, c.as_ptr());
+    1
 }
 
 pub fn install() {

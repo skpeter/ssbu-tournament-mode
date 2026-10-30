@@ -137,15 +137,6 @@ pub fn refresh_prompt() -> String {
     s.last_prompt.clone()
 }
 
-pub fn current_prompt() -> String {
-    let s = lock();
-    if s.last_prompt.is_empty() {
-        prompt_inner(&s)
-    } else {
-        s.last_prompt.clone()
-    }
-}
-
 pub fn active_controller() -> Option<u8> {
     let s = lock();
     s.steps

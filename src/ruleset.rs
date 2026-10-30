@@ -16,11 +16,6 @@ static LAST_NAME_LOG: once_cell::sync::Lazy<std::sync::Mutex<String>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(String::new()));
 
 pub mod offsets {
-    pub const GAME_END: usize = 0x14d6590;
-    pub const GAME_EXIT: usize = 0x14d7ef0;
-    pub const SCENE_TRANSITION: usize = 0x3726120;
-    pub const SSS_TO_CSS: usize = 0x23357f8;
-    pub const CSS_TO_SSS: usize = 0x2335184;
     /// HW: UTF-16LE ruleset title on 13.0.4 (e.g. `"Competitive FT3"` / `"FT2"`).
     /// 13.0.5 is this plus `0x1000`.
     pub const RULESET_NAME_PRIMARY: usize = 0x530456c;

@@ -309,14 +309,6 @@ pub fn hud_text() -> String {
     format!("{} — {}", s.wins[0], s.wins[1])
 }
 
-pub fn display_line() -> String {
-    format!("SET {} (FT{})", set_state::score_line(), ruleset::set_length())
-}
-
-pub fn current_text() -> String {
-    hud_text()
-}
-
 fn arm_tag_poll() {
     TAG_POLLS.store(0, Ordering::Relaxed);
 }
