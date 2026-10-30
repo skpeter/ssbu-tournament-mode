@@ -10,9 +10,9 @@
 //! hides only when a slot stamped this frame is under `WORLD_Y_BAND`.
 
 use crate::board_visibility::{
-    band_this_frame, board_visible, line_parts, place_for_scene, score_marks, should_sample,
-    stage_name, strip_cells, strip_visible, wins_after_melee_enter, BoardView, HeightSample, Place,
-    ScoreMarks, StripCell, WORLD_Y_BAND,
+    band_this_frame, board_visible, line_parts, place_for_scene, remember_stage, score_marks,
+    should_sample, stage_name, strip_cells, strip_visible, wins_after_melee_enter, BoardView,
+    HeightSample, Place, ScoreMarks, StripCell, WORLD_Y_BAND,
 };
 use crate::config;
 use crate::logutil;
@@ -44,6 +44,8 @@ struct BoardRuntime {
     frame: u64,
     slots: [Option<HeightSample>; 2],
     cache: DrawCache,
+    /// Stage seen while the match was loaded. Random's selection id stays invalid.
+    live_stage: Option<i32>,
 }
 
 pub struct DrawParts {
@@ -81,6 +83,7 @@ fn fresh_runtime() -> BoardRuntime {
         frame: 1,
         slots: [None, None],
         cache,
+        live_stage: None,
     }
 }
 
@@ -186,12 +189,36 @@ pub fn on_melee_scene() {
         let mut board = lock();
         board.place = Place::Melee;
         board.slots = [None, None];
+        board.live_stage = None;
     }
     arm_tag_poll();
     reread_tags();
     crate::hud_layout::on_melee_enter();
     if config::get().scoreboard && overlay_visible() {
         logutil::write(&format!("scoreboard: melee place text='{}'", hud_text()));
+    }
+}
+
+/// Stage id sampled during the match. `None` until a playable stage loads.
+pub fn cached_stage() -> Option<i32> {
+    lock().live_stage
+}
+
+fn observe_loaded_stage() {
+    let loaded = unsafe { skyline_smash::app::stage::get_stage_id() };
+    let selected = unsafe { skyline_smash::app::sv_information::stage_id() };
+    let mut board = lock();
+    if board.place != Place::Melee {
+        return;
+    }
+    let next = remember_stage(remember_stage(board.live_stage, loaded), selected);
+    if next != board.live_stage {
+        board.live_stage = next;
+        if let Some(id) = next {
+            logutil::write(&format!(
+                "scoreboard: loaded stage {id} (selected {selected})"
+            ));
+        }
     }
 }
 
@@ -425,6 +452,7 @@ unsafe extern "C" fn sample_fighter_main(fighter: &mut L2CFighterCommon) {
     if place != Place::Melee {
         return;
     }
+    observe_loaded_stage();
     let module_accessor = fighter.module_accessor;
     if module_accessor.is_null() {
         return;

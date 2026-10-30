@@ -3,7 +3,7 @@
 //! `ig*` comes from `lib/libimgui_smash.a`. Draw/setup registration uses the
 //! host NRO exports (LookupSymbol — those did resolve in 0.3.9).
 
-use crate::board_visibility::ScoreMarks;
+use crate::board_visibility::{hud_font_scale, stage_box_positions, ScoreMarks};
 use crate::logutil;
 use crate::scoreboard;
 use skyline::nn::ro::LookupSymbol;
@@ -36,13 +36,27 @@ extern "C" {
     fn igPushStyleColor_Vec4(idx: i32, col: ImVec4);
     fn igPopStyleColor(count: i32);
     fn igSetNextWindowPos(pos: ImVec2, cond: i32, pivot: ImVec2);
+    fn igSetNextWindowSize(size: ImVec2, cond: i32);
     fn igSetNextWindowBgAlpha(alpha: f32);
     fn igGetIO() -> *mut ImGuiIO;
+    fn igGetStyle() -> *mut c_void;
     fn igGetWindowDrawList() -> *mut c_void;
+    fn igGetWindowPos() -> ImVec2;
     fn igGetCursorScreenPos() -> ImVec2;
+    fn igGetCursorPosX() -> f32;
+    fn igGetContentRegionAvail() -> ImVec2;
+    fn igSetCursorPosX(x: f32);
+    fn igCalcTextSize(
+        text: *const c_char,
+        text_end: *const c_char,
+        hide_text_after_double_hash: u8,
+        wrap_width: f32,
+    ) -> ImVec2;
+    fn igPushStyleVar_Vec2(idx: i32, val: ImVec2);
+    fn igPopStyleVar(count: i32);
     fn igDummy(size: ImVec2);
-    fn igBeginGroup();
-    fn igEndGroup();
+    #[link_name = "_ZN5ImGui18SetWindowFontScaleEf"]
+    fn set_window_font_scale(scale: f32);
     fn ImDrawList_AddRect(
         draw_list: *mut c_void,
         p_min: ImVec2,
@@ -121,17 +135,71 @@ const GROUP_GAP: f32 = 22.0;
 const BLOCK_ROUND: f32 = 2.0;
 const BLOCK_THICK: f32 = 2.0;
 const STRIP_GAP: f32 = 10.0;
+const EDGE_MARGIN: f32 = 24.0;
+/// Window fill. Light enough that the stage stays readable behind the text.
+const WINDOW_BG_ALPHA: f32 = 0.25;
+/// imgui 1.92 `ImGuiStyleVar_WindowPadding` / `ImGuiStyleVar_ItemSpacing`.
+const STYLE_WINDOW_PADDING: i32 = 2;
+const STYLE_ITEM_SPACING: i32 = 14;
+/// Byte offsets in imgui 1.92 `ImGuiStyle` (three font floats, then alpha, disabled alpha).
+const STYLE_WINDOW_PADDING_OFFSET: usize = 20;
+const STYLE_ITEM_SPACING_OFFSET: usize = 92;
+const STAGE_FLAGS: i32 = SCORE_FLAGS & !WIN_ALWAYS_AUTO_RESIZE;
 static DRAW_LOGGED: AtomicBool = AtomicBool::new(false);
 
-unsafe fn window_anchor() -> (f32, f32, f32, f32) {
+struct Chrome {
+    scale: f32,
+    pad: ImVec2,
+    spacing: ImVec2,
+}
+
+unsafe fn window_anchor(scale: f32) -> (f32, f32, f32, f32) {
+    let margin = EDGE_MARGIN * scale;
     let io = igGetIO();
     if !io.is_null() {
         let size = (*io).display_size;
         if size.x >= 100.0 && size.y >= 100.0 {
-            return (size.x * 0.5, size.y - 24.0, size.x, size.y);
+            return (size.x * 0.5, size.y - margin, size.x, size.y);
         }
     }
-    (960.0, 1080.0 - 24.0, 1920.0, 1080.0)
+    (960.0, 1080.0 - margin, 1920.0, 1080.0)
+}
+
+unsafe fn chrome() -> Chrome {
+    let scale = hud_font_scale(skyline::nn::oe::GetOperationMode());
+    let style = igGetStyle();
+    if style.is_null() {
+        return Chrome {
+            scale,
+            pad: ImVec2 { x: 8.0, y: 8.0 },
+            spacing: ImVec2 { x: 8.0, y: 4.0 },
+        };
+    }
+    let base = style as *const u8;
+    Chrome {
+        scale,
+        pad: sane_vec(read_vec(base, STYLE_WINDOW_PADDING_OFFSET), 8.0, 8.0),
+        spacing: sane_vec(read_vec(base, STYLE_ITEM_SPACING_OFFSET), 8.0, 4.0),
+    }
+}
+
+unsafe fn read_vec(base: *const u8, offset: usize) -> ImVec2 {
+    *(base.add(offset) as *const ImVec2)
+}
+
+fn sane_vec(value: ImVec2, x: f32, y: f32) -> ImVec2 {
+    ImVec2 {
+        x: if (0.0..=64.0).contains(&value.x) {
+            value.x
+        } else {
+            x
+        },
+        y: if (0.0..=64.0).contains(&value.y) {
+            value.y
+        } else {
+            y
+        },
+    }
 }
 
 const COLOR_PORT_0: ImVec4 = ImVec4 {
@@ -160,36 +228,41 @@ unsafe fn paint_marks(
     color: ImVec4,
     mut same_line: bool,
     leading_gap: f32,
+    scale: f32,
 ) -> bool {
     let list = igGetWindowDrawList();
     if list.is_null() {
         return same_line;
     }
+    let block = BLOCK * scale;
+    let round = BLOCK_ROUND * scale;
+    let thick = BLOCK_THICK * scale;
+    let between = BLOCK_GAP * scale;
     let total = marks.filled + marks.open;
     let filled_col = pack_color(color);
     for i in 0..total {
         if same_line {
-            let gap = if i == 0 { leading_gap } else { BLOCK_GAP };
+            let gap = if i == 0 { leading_gap } else { between };
             igSameLine(0.0, gap);
         }
         same_line = true;
         let pos = igGetCursorScreenPos();
         let min = ImVec2 {
             x: pos.x,
-            y: pos.y + 1.0,
+            y: pos.y + scale,
         };
         let max = ImVec2 {
-            x: pos.x + BLOCK,
-            y: pos.y + 1.0 + BLOCK,
+            x: pos.x + block,
+            y: pos.y + scale + block,
         };
         if i < marks.filled {
-            ImDrawList_AddRectFilled(list, min, max, filled_col, BLOCK_ROUND, 0);
+            ImDrawList_AddRectFilled(list, min, max, filled_col, round, 0);
         } else {
-            ImDrawList_AddRect(list, min, max, filled_col, BLOCK_ROUND, 0, BLOCK_THICK);
+            ImDrawList_AddRect(list, min, max, filled_col, round, 0, thick);
         }
         igDummy(ImVec2 {
-            x: BLOCK,
-            y: BLOCK + 1.0,
+            x: block,
+            y: block + scale,
         });
     }
     same_line
@@ -203,42 +276,128 @@ fn winner_color(winner: u8) -> ImVec4 {
     }
 }
 
-unsafe fn paint_strip(parts: &scoreboard::DrawParts) {
-    for (index, cell) in parts.strip.iter().enumerate() {
-        if index > 0 {
-            igSameLine(0.0, STRIP_GAP);
-        }
-        let color = winner_color(cell.winner);
-        igBeginGroup();
-        if let Some(tag) = cell.tag.as_ref() {
-            paint(tag, color, false);
-        }
-        paint(&cell.name, color, false);
-        igEndGroup();
-    }
-}
-
-unsafe fn paint(text: &std::ffi::CString, color: ImVec4, same_line: bool) {
+unsafe fn paint(text: &std::ffi::CString, color: ImVec4, same_line: bool, spacing: f32) {
     if same_line {
-        igSameLine(0.0, SAME_LINE_SPACING);
+        igSameLine(0.0, spacing);
     }
     igPushStyleColor_Vec4(IMGUI_COL_TEXT, color);
     igTextUnformatted(text.as_ptr(), std::ptr::null());
     igPopStyleColor(1);
 }
 
+unsafe fn paint_centered(text: &std::ffi::CString, color: ImVec4) {
+    let measured = igCalcTextSize(text.as_ptr(), std::ptr::null(), 0, -1.0);
+    let region = igGetContentRegionAvail();
+    if region.x > measured.x {
+        igSetCursorPosX(igGetCursorPosX() + (region.x - measured.x) * 0.5);
+    }
+    paint(text, color, false, 0.0);
+}
+
+unsafe fn line_px(text: &std::ffi::CString) -> ImVec2 {
+    igCalcTextSize(text.as_ptr(), std::ptr::null(), 0, -1.0)
+}
+
+fn outer_size(name: ImVec2, tag: Option<ImVec2>, chrome: &Chrome) -> (f32, f32) {
+    let mut text_w = name.x;
+    let mut text_h = name.y;
+    let mut gap = 0.0;
+    if let Some(tag) = tag {
+        text_w = text_w.max(tag.x);
+        text_h += tag.y;
+        gap = chrome.spacing.y;
+    }
+    let scale = chrome.scale;
+    (
+        (text_w + chrome.pad.x * 2.0) * scale,
+        (text_h + gap + chrome.pad.y * 2.0) * scale,
+    )
+}
+
+fn stage_window_id(index: usize) -> [u8; 16] {
+    let mut buf = [0u8; 16];
+    let prefix = b"##tm_stage_";
+    buf[..prefix.len()].copy_from_slice(prefix);
+    let n = index.min(99);
+    buf[prefix.len()] = b'0' + (n / 10) as u8;
+    buf[prefix.len() + 1] = b'0' + (n % 10) as u8;
+    buf
+}
+
+unsafe fn paint_stage_row(
+    parts: &scoreboard::DrawParts,
+    center_x: f32,
+    score_top: f32,
+    chrome: &Chrome,
+) {
+    let mut sizes = Vec::with_capacity(parts.strip.len());
+    for cell in &parts.strip {
+        let tag_px = match cell.tag.as_ref() {
+            Some(tag) => Some(line_px(tag)),
+            None => None,
+        };
+        sizes.push(outer_size(line_px(&cell.name), tag_px, chrome));
+    }
+    let gap = STRIP_GAP * chrome.scale;
+    let positions = stage_box_positions(&sizes, score_top, center_x, gap, gap);
+    for (index, cell) in parts.strip.iter().enumerate() {
+        let Some(pos) = positions.get(index) else {
+            break;
+        };
+        let (w, h) = sizes[index];
+        igSetNextWindowPos(
+            ImVec2 { x: pos.x, y: pos.y },
+            IMGUI_COND_ALWAYS,
+            ImVec2 { x: 0.0, y: 0.0 },
+        );
+        igSetNextWindowSize(ImVec2 { x: w, y: h }, IMGUI_COND_ALWAYS);
+        igSetNextWindowBgAlpha(WINDOW_BG_ALPHA);
+        let name = stage_window_id(index);
+        if igBegin(name.as_ptr() as _, std::ptr::null_mut(), STAGE_FLAGS) {
+            if chrome.scale > 1.0 {
+                set_window_font_scale(chrome.scale);
+            }
+            let color = winner_color(cell.winner);
+            if let Some(tag) = cell.tag.as_ref() {
+                paint_centered(tag, color);
+            }
+            paint_centered(&cell.name, color);
+        }
+        igEnd();
+    }
+}
+
 unsafe extern "C" fn draw() {
     scoreboard::poll_missing_tags();
-    let (center_x, bottom_y, width, height) = window_anchor();
+    let chrome = chrome();
+    let (center_x, bottom_y, width, height) = window_anchor(chrome.scale);
     if !DRAW_LOGGED.swap(true, Ordering::Relaxed) {
         logutil::write(&format!(
-            "score_overlay: draw {:.0}x{:.0} visible={}",
+            "score_overlay: draw {:.0}x{:.0} scale={:.0} visible={}",
             width,
             height,
+            chrome.scale,
             scoreboard::overlay_visible()
         ));
     }
     if let Some(parts) = scoreboard::draw_parts() {
+        let scaled = chrome.scale > 1.0;
+        if scaled {
+            igPushStyleVar_Vec2(
+                STYLE_WINDOW_PADDING,
+                ImVec2 {
+                    x: chrome.pad.x * chrome.scale,
+                    y: chrome.pad.y * chrome.scale,
+                },
+            );
+            igPushStyleVar_Vec2(
+                STYLE_ITEM_SPACING,
+                ImVec2 {
+                    x: chrome.spacing.x * chrome.scale,
+                    y: chrome.spacing.y * chrome.scale,
+                },
+            );
+        }
         igSetNextWindowPos(
             ImVec2 {
                 x: center_x,
@@ -247,37 +406,54 @@ unsafe extern "C" fn draw() {
             IMGUI_COND_ALWAYS,
             ImVec2 { x: 0.5, y: 1.0 },
         );
-        igSetNextWindowBgAlpha(0.45);
+        igSetNextWindowBgAlpha(WINDOW_BG_ALPHA);
+        let mut score_top = None;
         if igBegin(
             b"##tm_score\0".as_ptr() as _,
             std::ptr::null_mut(),
             SCORE_FLAGS,
         ) {
-            if !parts.strip.is_empty() {
-                paint_strip(&parts);
+            if scaled {
+                set_window_font_scale(chrome.scale);
             }
+            let spacing = SAME_LINE_SPACING * chrome.scale;
             let mut follow = false;
             if let Some(tag) = parts.tag0.as_ref() {
-                paint(tag, COLOR_PORT_0, false);
+                paint(tag, COLOR_PORT_0, false, spacing);
                 follow = true;
             }
             follow = paint_marks(
                 parts.left,
                 COLOR_PORT_0,
                 follow,
-                if follow { SAME_LINE_SPACING } else { 0.0 },
+                if follow { spacing } else { 0.0 },
+                chrome.scale,
             );
             follow = paint_marks(
                 parts.right,
                 COLOR_PORT_1,
                 follow,
-                if follow { GROUP_GAP } else { 0.0 },
+                if follow {
+                    GROUP_GAP * chrome.scale
+                } else {
+                    0.0
+                },
+                chrome.scale,
             );
             if let Some(tag) = parts.tag1.as_ref() {
-                paint(tag, COLOR_PORT_1, follow);
+                paint(tag, COLOR_PORT_1, follow, spacing);
             }
+            score_top = Some(igGetWindowPos().y);
         }
         igEnd();
+        if let Some(score_top) = score_top {
+            if !parts.strip.is_empty() {
+                paint_stage_row(&parts, center_x, score_top, &chrome);
+            }
+        }
+        if scaled {
+            igPopStyleVar(2);
+        }
     } else {
         igSetNextWindowPos(
             ImVec2 { x: 0.0, y: 0.0 },

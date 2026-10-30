@@ -188,6 +188,95 @@ pub fn stage_for_strip(stage_id: i32) -> Option<i32> {
     }
 }
 
+/// Training, results, and other non-match ids. Random stays invalid (`-1`)
+/// until the loaded stage replaces it.
+fn is_system_stage(stage_id: i32) -> bool {
+    matches!(stage_id, 0x134..=0x147 | 0x14B | 0x162)
+}
+
+/// A stage id worth keeping for the strip. Negative and system ids are not.
+pub fn playable_stage(stage_id: i32) -> Option<i32> {
+    let stage_id = stage_for_strip(stage_id)?;
+    if is_system_stage(stage_id) {
+        None
+    } else {
+        Some(stage_id)
+    }
+}
+
+/// Keep the first named stage. A later invalid or results id does not replace it.
+/// An unnamed id is replaced once a named stage shows up.
+pub fn remember_stage(kept: Option<i32>, observed: i32) -> Option<i32> {
+    let Some(observed) = playable_stage(observed) else {
+        return kept;
+    };
+    match kept {
+        Some(id) if stage_name(id).is_some() => Some(id),
+        _ => Some(observed),
+    }
+}
+
+/// The stage that was played. `loaded` is the stage resource. `selected` is
+/// `sv_information::stage_id`, which stays invalid when Random was picked.
+/// `cached` is the stage seen while the match was running.
+fn named_stage(stage_id: i32) -> Option<i32> {
+    if stage_name(stage_id).is_some() {
+        Some(stage_id)
+    } else {
+        None
+    }
+}
+
+pub fn pick_played_stage(selected: i32, loaded: i32, cached: Option<i32>) -> Option<i32> {
+    named_stage(loaded)
+        .or_else(|| named_stage(selected))
+        .or_else(|| cached.and_then(named_stage))
+        .or_else(|| playable_stage(loaded))
+        .or_else(|| playable_stage(selected))
+        .or_else(|| cached.and_then(playable_stage))
+}
+
+/// `nn::oe::GetOperationMode`: handheld and tabletop are 0, docked TV is 1.
+/// Docked text is 3x. Handheld stays at the original size.
+pub fn hud_font_scale(operation_mode: i32) -> f32 {
+    if operation_mode == 1 {
+        3.0
+    } else {
+        1.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StageBoxPos {
+    pub x: f32,
+    pub y: f32,
+}
+
+/// One box per result, centered as a row, bottoms `gap` above the scoreboard.
+pub fn stage_box_positions(
+    sizes: &[(f32, f32)],
+    score_top: f32,
+    center_x: f32,
+    gap: f32,
+    box_gap: f32,
+) -> Vec<StageBoxPos> {
+    if sizes.is_empty() {
+        return Vec::new();
+    }
+    let total_w = sizes.iter().map(|(w, _)| *w).sum::<f32>()
+        + box_gap * (sizes.len().saturating_sub(1)) as f32;
+    let mut x = center_x - total_w * 0.5;
+    let mut out = Vec::with_capacity(sizes.len());
+    for (w, h) in sizes {
+        out.push(StageBoxPos {
+            x,
+            y: score_top - gap - h,
+        });
+        x += w + box_gap;
+    }
+    out
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StripCell {
     pub stage_id: i32,
@@ -381,7 +470,11 @@ mod tests {
 
     #[test]
     fn strip_cells_keep_order_and_repeat_stages() {
-        let cells = strip_cells(&[(4, 0), (4, 1), (-1, 0), (9, 2)], Some("Red"), Some("Blue"));
+        let cells = strip_cells(
+            &[(4, 0), (4, 1), (-1, 0), (9, 2)],
+            Some("Red"),
+            Some("Blue"),
+        );
         assert_eq!(
             cells,
             vec![
@@ -408,6 +501,40 @@ mod tests {
         assert!(missing[0].tag.is_none());
         assert!(stage_for_strip(-1).is_none());
         assert_eq!(stage_for_strip(0), Some(0));
+    }
+
+    #[test]
+    fn random_stage_uses_the_loaded_or_cached_id() {
+        assert_eq!(pick_played_stage(-1, 3, None), Some(3));
+        assert_eq!(pick_played_stage(-1, 0x136, Some(4)), Some(4));
+        assert_eq!(pick_played_stage(-1, -1, None), None);
+        assert_eq!(pick_played_stage(0xE, 0xE, None), Some(0xE));
+        assert_eq!(remember_stage(None, -1), None);
+        assert_eq!(remember_stage(None, 0x136), None);
+        assert_eq!(remember_stage(None, 3), Some(3));
+        assert_eq!(remember_stage(Some(3), 0x136), Some(3));
+        assert_eq!(remember_stage(Some(3), 0), Some(3));
+        assert_eq!(remember_stage(Some(200), 4), Some(4));
+    }
+
+    #[test]
+    fn docked_text_is_triple_handheld_stays() {
+        assert_eq!(hud_font_scale(0), 1.0);
+        assert_eq!(hud_font_scale(1), 3.0);
+        assert_eq!(hud_font_scale(2), 1.0);
+    }
+
+    #[test]
+    fn stage_boxes_sit_centered_above_the_scoreboard() {
+        let row = stage_box_positions(&[(100.0, 40.0), (80.0, 40.0)], 1000.0, 500.0, 10.0, 20.0);
+        assert_eq!(
+            row,
+            vec![
+                StageBoxPos { x: 400.0, y: 950.0 },
+                StageBoxPos { x: 520.0, y: 950.0 },
+            ]
+        );
+        assert!(stage_box_positions(&[], 0.0, 0.0, 0.0, 0.0).is_empty());
     }
 
     #[test]

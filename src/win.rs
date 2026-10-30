@@ -36,10 +36,7 @@ pub unsafe fn try_attribute_from_fighter_manager() {
 
     let mut stocks = [0i32; 2];
     for side in 0..2 {
-        let info = FighterManager::get_fighter_information(
-            mgr,
-            app::FighterEntryID(side),
-        );
+        let info = FighterManager::get_fighter_information(mgr, app::FighterEntryID(side));
         if info.is_null() {
             return;
         }
@@ -55,18 +52,24 @@ pub unsafe fn try_attribute_from_fighter_manager() {
     };
 
     if let Some(w) = winner {
-        let stage_id = app::sv_information::stage_id();
-        if crate::board_visibility::stage_for_strip(stage_id).is_none() {
-            log_zero_stage_once();
-        } else {
+        let selected = app::sv_information::stage_id();
+        let loaded = app::stage::get_stage_id();
+        let cached = crate::scoreboard::cached_stage();
+        let stage_id = crate::board_visibility::pick_played_stage(selected, loaded, cached);
+        if let Some(stage_id) = stage_id {
             set_state::push_played(stage_id, w);
+        } else {
+            log_zero_stage_once();
         }
         let done = set_state::record_win(w, None);
         logutil::write(&format!(
-            "win: P{} (stocks {}-{}) stage={} set={} ft={} done={}",
+            "win: P{} (stocks {}-{}) selected={} loaded={} cached={:?} used={:?} set={} ft={} done={}",
             w + 1,
             stocks[0],
             stocks[1],
+            selected,
+            loaded,
+            cached,
             stage_id,
             set_state::score_line(),
             ruleset::set_length(),
