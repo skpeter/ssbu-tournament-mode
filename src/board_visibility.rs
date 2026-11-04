@@ -18,10 +18,10 @@
 //!
 //! Sample path: `should_sample` writes one slot per entry with a frame stamp.
 //! Death, a failed `should_sample`, or leaving `Melee` clears that slot.
-//! `band_this_frame` hides only from a slot stamped this frame whose world Y
-//! is under `WORLD_Y_BAND`. Tag strings rebuild when a read changes. Each
-//! side's blocks are `score_marks`: one filled cell per win, one open cell
-//! per win still needed, and `first_to` cells in total.
+//! Top proximity hide is off until a hardware threshold is picked from the
+//! temporary Y debug overlay. Each side's blocks are `score_marks`: one
+//! filled cell per win, one open cell per win still needed, and `first_to`
+//! cells in total.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Place {
@@ -32,9 +32,12 @@ pub enum Place {
     Results,
 }
 
-/// World Y under this value hides the line during melee. Equal does not hide.
-/// Standing on a floor near 0 stays visible. Tune on hardware.
-pub const WORLD_Y_BAND: f32 = 0.0;
+/// Max fighter entries we sample for height / team (ports 0..7).
+pub const MAX_ENTRIES: usize = 8;
+
+/// Top-band hide: world Y above this value would hide during melee.
+/// `None` means proximity hide is off — tune from the Y debug overlay.
+pub const WORLD_Y_TOP_BAND: Option<f32> = None;
 
 #[derive(Clone, Copy, Debug)]
 pub struct BoardView {
@@ -55,10 +58,12 @@ pub struct ScoreMarks {
     pub open: u32,
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LineParts {
-    pub tag0: Option<String>,
-    pub tag1: Option<String>,
+    /// One tag for singles, two stacked for a doubles side.
+    pub left_tags: Vec<String>,
+    pub right_tags: Vec<String>,
     pub left: ScoreMarks,
     pub right: ScoreMarks,
 }
@@ -105,21 +110,23 @@ pub fn score_marks(wins: u32, first_to: u32) -> ScoreMarks {
     }
 }
 
+#[cfg(test)]
 pub fn line_parts(
-    tag0: Option<&str>,
-    tag1: Option<&str>,
+    left_tags: &[Option<&str>],
+    right_tags: &[Option<&str>],
     w0: u32,
     w1: u32,
     first_to: u32,
 ) -> LineParts {
     LineParts {
-        tag0: present(tag0),
-        tag1: present(tag1),
+        left_tags: present_many(left_tags),
+        right_tags: present_many(right_tags),
         left: score_marks(w0, first_to),
         right: score_marks(w1, first_to),
     }
 }
 
+#[cfg(test)]
 fn present(tag: Option<&str>) -> Option<String> {
     match tag {
         Some(text) if !text.is_empty() => Some(text.to_string()),
@@ -127,15 +134,50 @@ fn present(tag: Option<&str>) -> Option<String> {
     }
 }
 
+#[cfg(test)]
+fn present_many(tags: &[Option<&str>]) -> Vec<String> {
+    tags.iter().filter_map(|tag| present(*tag)).collect()
+}
+
+/// FT2/FT3 doubles: at least four fighters and exactly two team colors.
+pub fn doubles_roster(entry_count: u32, distinct_teams: u32) -> bool {
+    entry_count >= 4 && distinct_teams == 2
+}
+
+/// FFA or 3+ teams: board stays off once we have seen three or more fighters.
+pub fn skip_multi_roster(seen: u32, distinct_teams: u32, any_ffa: bool) -> bool {
+    if seen < 3 {
+        return false;
+    }
+    any_ffa || distinct_teams != 2
+}
+
+/// Sort team numbers so side 0 is the lower `team_no` (red before blue).
+pub fn ordered_team_pair(a: i32, b: i32) -> (i32, i32) {
+    if a <= b {
+        (a, b)
+    } else {
+        (b, a)
+    }
+}
+
 pub fn should_sample(place: Place, dead: bool, entry_id: i32) -> bool {
-    place == Place::Melee && !dead && (entry_id == 0 || entry_id == 1)
+    place == Place::Melee
+        && !dead
+        && entry_id >= 0
+        && (entry_id as usize) < MAX_ENTRIES
 }
 
+/// Top-band: world Y strictly above the constant. Bottom-band (legacy): under.
 pub fn in_band(y: f32, constant: f32) -> bool {
-    y < constant
+    y > constant
 }
 
-pub fn band_this_frame(slots: [Option<HeightSample>; 2], frame: u64, constant: f32) -> bool {
+pub fn band_this_frame(
+    slots: &[Option<HeightSample>],
+    frame: u64,
+    constant: f32,
+) -> bool {
     for slot in slots {
         if let Some(sample) = slot {
             if sample.frame == frame && in_band(sample.y, constant) {
@@ -253,22 +295,41 @@ pub struct SideColumn {
     pub name_x: f32,
     pub grid_x: f32,
     pub width: f32,
+    pub height: f32,
 }
 
-/// Name above the grid. `align_end` pins both to the inner edge (player 1).
-pub fn side_column(name_w: f32, grid_w: f32, align_end: bool) -> SideColumn {
-    let width = name_w.max(grid_w);
+/// Names beside the grid. `align_end` is the left side: names outer, grid
+/// toward center. Right side is the mirror.
+pub fn side_column(
+    name_w: f32,
+    name_h: f32,
+    grid_w: f32,
+    grid_h: f32,
+    gap: f32,
+    align_end: bool,
+) -> SideColumn {
+    let name_w = name_w.max(0.0);
+    let grid_w = grid_w.max(0.0);
+    let gap = if name_w > 0.0 && grid_w > 0.0 {
+        gap
+    } else {
+        0.0
+    };
+    let width = name_w + gap + grid_w;
+    let height = name_h.max(grid_h);
     if align_end {
         SideColumn {
-            name_x: width - name_w,
-            grid_x: width - grid_w,
+            name_x: 0.0,
+            grid_x: name_w + gap,
             width,
+            height,
         }
     } else {
         SideColumn {
-            name_x: 0.0,
+            name_x: grid_w + gap,
             grid_x: 0.0,
             width,
+            height,
         }
     }
 }
@@ -290,10 +351,10 @@ pub struct StageBoxPos {
     pub y: f32,
 }
 
-/// One box per result, centered as a row, bottoms `gap` above the scoreboard.
+/// One box per result, centered as a row, tops `gap` below the scoreboard.
 pub fn stage_box_positions(
     sizes: &[(f32, f32)],
-    score_top: f32,
+    score_bottom: f32,
     center_x: f32,
     gap: f32,
     box_gap: f32,
@@ -305,10 +366,10 @@ pub fn stage_box_positions(
         + box_gap * (sizes.len().saturating_sub(1)) as f32;
     let mut x = center_x - total_w * 0.5;
     let mut out = Vec::with_capacity(sizes.len());
-    for (w, h) in sizes {
+    for (w, _) in sizes {
         out.push(StageBoxPos {
             x,
-            y: score_top - gap - h,
+            y: score_bottom + gap,
         });
         x += w + box_gap;
     }
@@ -319,24 +380,28 @@ pub fn stage_box_positions(
 pub struct StripCell {
     pub stage_id: i32,
     pub winner: u8,
-    pub tag: Option<String>,
+    pub tags: Vec<String>,
 }
 
-/// One cell per played game, in order. A missing tag is omitted. Repeats stay.
-pub fn strip_cells(games: &[(i32, u8)], tag0: Option<&str>, tag1: Option<&str>) -> Vec<StripCell> {
+/// One cell per played game, in order. Missing tags are omitted. Repeats stay.
+pub fn strip_cells(
+    games: &[(i32, u8)],
+    left_tags: &[String],
+    right_tags: &[String],
+) -> Vec<StripCell> {
     games
         .iter()
         .filter_map(|(stage_id, winner)| {
             let stage_id = stage_for_strip(*stage_id)?;
-            let tag = match *winner {
-                0 => present(tag0),
-                1 => present(tag1),
-                _ => None,
+            let tags = match *winner {
+                0 => left_tags.to_vec(),
+                1 => right_tags.to_vec(),
+                _ => Vec::new(),
             };
             Some(StripCell {
                 stage_id,
                 winner: *winner,
-                tag,
+                tags,
             })
         })
         .collect()
@@ -441,21 +506,46 @@ mod tests {
 
     #[test]
     fn board_visible_line_parts() {
-        let both = line_parts(Some("Red"), Some("Blue"), 1, 0, 3);
-        assert_eq!(both.tag0.as_deref(), Some("Red"));
+        let both = line_parts(&[Some("Red")], &[Some("Blue")], 1, 0, 3);
+        assert_eq!(both.left_tags, vec!["Red".to_string()]);
         assert_eq!(both.left, ScoreMarks { filled: 1, open: 2 });
         assert_eq!(both.right, ScoreMarks { filled: 0, open: 3 });
-        assert_eq!(both.tag1.as_deref(), Some("Blue"));
+        assert_eq!(both.right_tags, vec!["Blue".to_string()]);
 
-        let no_tags = line_parts(None, Some(""), 0, 0, 2);
-        assert!(no_tags.tag0.is_none());
-        assert!(no_tags.tag1.is_none());
+        let doubles = line_parts(
+            &[Some("A"), Some("B")],
+            &[Some("C"), Some("D")],
+            0,
+            1,
+            2,
+        );
+        assert_eq!(doubles.left_tags, vec!["A".to_string(), "B".to_string()]);
+        assert_eq!(doubles.right_tags, vec!["C".to_string(), "D".to_string()]);
+
+        let no_tags = line_parts(&[None], &[Some("")], 0, 0, 2);
+        assert!(no_tags.left_tags.is_empty());
+        assert!(no_tags.right_tags.is_empty());
         assert_eq!(no_tags.left, score_marks(0, 2));
 
-        let after_win = line_parts(Some("Red"), None, 1, 0, 3);
-        let after_reset = line_parts(Some("Red"), None, 0, 0, 3);
+        let after_win = line_parts(&[Some("Red")], &[], 1, 0, 3);
+        let after_reset = line_parts(&[Some("Red")], &[], 0, 0, 3);
         assert_eq!(after_win.left.filled, 1);
         assert_eq!(after_reset.left, ScoreMarks { filled: 0, open: 3 });
+    }
+
+    #[test]
+    fn doubles_needs_four_fighters_and_two_teams() {
+        assert!(doubles_roster(4, 2));
+        assert!(doubles_roster(5, 2));
+        assert!(!doubles_roster(2, 2));
+        assert!(!doubles_roster(4, 1));
+        assert!(!doubles_roster(4, 3));
+        assert!(!doubles_roster(4, 0));
+        assert_eq!(ordered_team_pair(1, 0), (0, 1));
+        assert!(!skip_multi_roster(2, 0, true));
+        assert!(skip_multi_roster(4, 0, true));
+        assert!(skip_multi_roster(4, 3, false));
+        assert!(!skip_multi_roster(4, 2, false));
     }
 
     #[test]
@@ -470,8 +560,10 @@ mod tests {
     fn board_visible_should_sample() {
         assert!(should_sample(Place::Melee, false, 0));
         assert!(should_sample(Place::Melee, false, 1));
+        assert!(should_sample(Place::Melee, false, 2));
+        assert!(should_sample(Place::Melee, false, 3));
         assert!(!should_sample(Place::Melee, true, 0));
-        assert!(!should_sample(Place::Melee, false, 2));
+        assert!(!should_sample(Place::Melee, false, 8));
         assert!(!should_sample(Place::Results, false, 0));
         assert!(!should_sample(Place::Css, false, 1));
     }
@@ -479,21 +571,25 @@ mod tests {
     #[test]
     fn board_visible_in_band_and_slots() {
         assert!(!in_band(0.0, 0.0));
-        assert!(in_band(-0.1, 0.0));
-        assert!(!in_band(1.0, 0.0));
+        assert!(!in_band(-0.1, 0.0));
+        assert!(in_band(1.0, 0.0));
 
-        let constant = 0.0;
+        let constant = 50.0;
         let frame = 4;
-        assert!(!band_this_frame([None, None], frame, constant));
-        let stale = HeightSample {
-            y: -5.0,
+        let empty = [None; MAX_ENTRIES];
+        assert!(!band_this_frame(&empty, frame, constant));
+        let mut stale = empty;
+        stale[0] = Some(HeightSample {
+            y: 80.0,
             frame: frame - 1,
-        };
-        assert!(!band_this_frame([Some(stale), None], frame, constant));
-        let low = HeightSample { y: -5.0, frame };
-        let high = HeightSample { y: 10.0, frame };
-        assert!(band_this_frame([Some(high), Some(low)], frame, constant));
-        assert!(!band_this_frame([Some(high), None], frame, constant));
+        });
+        assert!(!band_this_frame(&stale, frame, constant));
+        let mut high = empty;
+        high[0] = Some(HeightSample { y: 80.0, frame });
+        assert!(band_this_frame(&high, frame, constant));
+        let mut low = empty;
+        low[0] = Some(HeightSample { y: 10.0, frame });
+        assert!(!band_this_frame(&low, frame, constant));
     }
 
     #[test]
@@ -508,35 +604,37 @@ mod tests {
 
     #[test]
     fn strip_cells_keep_order_and_repeat_stages() {
-        let cells = strip_cells(
-            &[(4, 0), (4, 1), (-1, 0), (9, 2)],
-            Some("Red"),
-            Some("Blue"),
-        );
+        let left = vec!["Red".into()];
+        let right = vec!["Blue".into()];
+        let cells = strip_cells(&[(4, 0), (4, 1), (-1, 0), (9, 2)], &left, &right);
         assert_eq!(
             cells,
             vec![
                 StripCell {
                     stage_id: 4,
                     winner: 0,
-                    tag: Some("Red".into()),
+                    tags: vec!["Red".into()],
                 },
                 StripCell {
                     stage_id: 4,
                     winner: 1,
-                    tag: Some("Blue".into()),
+                    tags: vec!["Blue".into()],
                 },
                 StripCell {
                     stage_id: 9,
                     winner: 2,
-                    tag: None,
+                    tags: Vec::new(),
                 },
             ]
         );
 
-        let missing = strip_cells(&[(3, 0)], None, Some(""));
+        let dubs_left = vec!["A".into(), "B".into()];
+        let dubs = strip_cells(&[(3, 0)], &dubs_left, &right);
+        assert_eq!(dubs[0].tags, dubs_left);
+
+        let missing = strip_cells(&[(3, 0)], &[], &[]);
         assert_eq!(missing.len(), 1);
-        assert!(missing[0].tag.is_none());
+        assert!(missing[0].tags.is_empty());
         assert!(stage_for_strip(-1).is_none());
         assert_eq!(stage_for_strip(0), Some(0));
     }
@@ -566,29 +664,33 @@ mod tests {
         assert!(cell_filled(0, 3, 3, true));
     }
 
-    fn names_sit_on_the_inner_edge() {
+    #[test]
+    fn names_sit_beside_the_grid() {
         assert_eq!(
-            side_column(40.0, 30.0, true),
+            side_column(40.0, 30.0, 30.0, 14.0, 8.0, true),
             SideColumn {
                 name_x: 0.0,
-                grid_x: 10.0,
-                width: 40.0,
+                grid_x: 48.0,
+                width: 78.0,
+                height: 30.0,
             }
         );
         assert_eq!(
-            side_column(20.0, 30.0, true),
+            side_column(20.0, 16.0, 30.0, 14.0, 8.0, false),
             SideColumn {
-                name_x: 10.0,
+                name_x: 38.0,
+                grid_x: 0.0,
+                width: 58.0,
+                height: 16.0,
+            }
+        );
+        assert_eq!(
+            side_column(0.0, 0.0, 30.0, 14.0, 8.0, true),
+            SideColumn {
+                name_x: 0.0,
                 grid_x: 0.0,
                 width: 30.0,
-            }
-        );
-        assert_eq!(
-            side_column(50.0, 30.0, false),
-            SideColumn {
-                name_x: 0.0,
-                grid_x: 0.0,
-                width: 50.0,
+                height: 14.0,
             }
         );
     }
@@ -602,13 +704,13 @@ mod tests {
     }
 
     #[test]
-    fn stage_boxes_sit_centered_above_the_scoreboard() {
-        let row = stage_box_positions(&[(100.0, 40.0), (80.0, 40.0)], 1000.0, 500.0, 10.0, 20.0);
+    fn stage_boxes_sit_centered_below_the_scoreboard() {
+        let row = stage_box_positions(&[(100.0, 40.0), (80.0, 40.0)], 100.0, 500.0, 10.0, 20.0);
         assert_eq!(
             row,
             vec![
-                StageBoxPos { x: 400.0, y: 950.0 },
-                StageBoxPos { x: 520.0, y: 950.0 },
+                StageBoxPos { x: 400.0, y: 110.0 },
+                StageBoxPos { x: 520.0, y: 110.0 },
             ]
         );
         assert!(stage_box_positions(&[], 0.0, 0.0, 0.0, 0.0).is_empty());
