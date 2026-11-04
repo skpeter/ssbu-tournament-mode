@@ -100,6 +100,18 @@ pub fn place_for_scene(scene: &str) -> Option<Place> {
     }
 }
 
+/// Vault playback: `Replay*` scenes arm a session; the following `MeleeScene`
+/// stays in it. Any other named scene ends it. Empty keeps the prior value.
+pub fn replay_after_scene(was_replay: bool, scene: &str) -> bool {
+    if scene.contains("Replay") {
+        true
+    } else if scene.is_empty() || scene == "MeleeScene" {
+        was_replay
+    } else {
+        false
+    }
+}
+
 /// `first_to` is how many wins end the set. Wins above that still fill every cell.
 pub fn score_marks(wins: u32, first_to: u32) -> ScoreMarks {
     let slots = first_to.max(1);
@@ -451,6 +463,25 @@ mod tests {
         assert_eq!(place_for_scene("LocalTopScene"), Some(Place::Menu));
         assert_eq!(place_for_scene("MenuSequenceScene"), Some(Place::Menu));
         assert_eq!(place_for_scene("MeleeScene"), None);
+        assert_eq!(
+            place_for_scene("MeleeReplayNormalSequenceScene"),
+            Some(Place::Menu)
+        );
+        assert_eq!(place_for_scene("ReplayLoadScene"), Some(Place::Menu));
+    }
+
+    #[test]
+    fn replay_session_follows_vault_scenes() {
+        assert!(replay_after_scene(false, "ReplayExitScene"));
+        assert!(replay_after_scene(false, "ReplayLoadScene"));
+        assert!(replay_after_scene(false, "MeleeReplayNormalSequenceScene"));
+        assert!(replay_after_scene(true, "MeleeScene"));
+        assert!(!replay_after_scene(false, "MeleeScene"));
+        assert!(!replay_after_scene(true, "MainMenuScene"));
+        assert!(!replay_after_scene(true, "CharaSelectScene"));
+        assert!(!replay_after_scene(true, "MeleeRuleScene"));
+        assert!(replay_after_scene(true, ""));
+        assert!(!replay_after_scene(false, ""));
     }
 
     #[test]

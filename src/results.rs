@@ -22,6 +22,11 @@ unsafe fn game_end(game_state: u64) {
     ));
     call_original!(game_state);
 
+    if set_state::in_replay() {
+        logutil::write("game_end: skip set update (vault replay)");
+        return;
+    }
+
     if strike::api_is_active() && !WIN_ATTRIBUTED.swap(true, Ordering::SeqCst) {
         win::try_attribute_from_fighter_manager();
         // Intentionally no DialogOk / toast — crashes mid-flow and is the wrong UX.
@@ -50,6 +55,10 @@ unsafe fn game_exit(game_state: u64, arg: u64) {
 }
 
 pub fn note_melee_start() {
+    if set_state::in_replay() {
+        logutil::write("scoreboard: skip melee arm (vault replay)");
+        return;
+    }
     WIN_ATTRIBUTED.store(false, Ordering::SeqCst);
     scoreboard::on_melee_scene();
 }

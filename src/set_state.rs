@@ -32,6 +32,8 @@ pub struct SetState {
     /// Games in this set, in play order. Repeats stay. Not the strike list.
     pub played: Vec<PlayedGame>,
     pub last_scene: String,
+    /// Vault replay playback (Replay* → MeleeScene). Not a live set match.
+    pub in_replay: bool,
     pub probe_ok: bool,
     pub inert_reason: String,
 }
@@ -47,6 +49,7 @@ impl Default for SetState {
             won_stages: [Vec::new(), Vec::new()],
             played: Vec::new(),
             last_scene: String::new(),
+            in_replay: false,
             probe_ok: false,
             inert_reason: "boot".to_string(),
         }
@@ -98,9 +101,18 @@ pub fn set_first_to(n: u32) {
 pub fn note_scene(scene: &str) {
     let mut s = lock();
     s.last_scene = scene.to_string();
+    let next_replay = crate::board_visibility::replay_after_scene(s.in_replay, scene);
+    if next_replay != s.in_replay {
+        s.in_replay = next_replay;
+        logutil::write(&format!("set: in_replay={next_replay}"));
+    }
     if scene == "MeleeRuleScene" || scene == "MainMenuScene" {
         reset_inner(&mut s, "left_versus_or_rules");
     }
+}
+
+pub fn in_replay() -> bool {
+    lock().in_replay
 }
 
 #[cfg(test)]

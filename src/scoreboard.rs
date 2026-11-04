@@ -228,6 +228,9 @@ pub fn advance_frame() {
 }
 
 pub fn overlay_visible() -> bool {
+    if set_state::in_replay() {
+        return false;
+    }
     if crate::board_visibility::too_many_players(fighter_entry_count()) {
         return false;
     }
