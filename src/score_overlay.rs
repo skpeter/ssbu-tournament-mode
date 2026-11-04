@@ -139,7 +139,6 @@ const BLOCK_ROUND: f32 = 2.0;
 const BLOCK_THICK: f32 = 2.0;
 const STRIP_GAP: f32 = 10.0;
 const EDGE_MARGIN: f32 = 24.0;
-const NAME_GRID_GAP: f32 = 10.0;
 /// Window fill. Dark enough that the text stays readable over the stage.
 const WINDOW_BG_ALPHA: f32 = 0.8;
 /// imgui 1.92 `ImGuiStyleVar_WindowPadding` / `ImGuiStyleVar_ItemSpacing`.
@@ -157,17 +156,16 @@ struct Chrome {
     spacing: ImVec2,
 }
 
-/// Center X, top Y, display width, display height. Pivot is top-center.
 unsafe fn window_anchor(scale: f32) -> (f32, f32, f32, f32) {
     let margin = EDGE_MARGIN * scale;
     let io = igGetIO();
     if !io.is_null() {
         let size = (*io).display_size;
         if size.x >= 100.0 && size.y >= 100.0 {
-            return (size.x * 0.5, margin, size.x, size.y);
+            return (size.x * 0.5, size.y - margin, size.x, size.y);
         }
     }
-    (960.0, margin, 1920.0, 1080.0)
+    (960.0, 1080.0 - margin, 1920.0, 1080.0)
 }
 
 unsafe fn display_width() -> f32 {
@@ -286,104 +284,57 @@ unsafe fn paint_mark_row(
     }
 }
 
-fn stack_size(tags: &[std::ffi::CString], line_gap: f32) -> (f32, f32) {
-    let mut width = 0.0f32;
-    let mut height = 0.0f32;
-    for (i, tag) in tags.iter().enumerate() {
-        let size = unsafe { line_px(tag) };
-        width = width.max(size.x);
-        height += size.y;
-        if i + 1 < tags.len() {
-            height += line_gap;
-        }
-    }
-    (width, height)
-}
-
-unsafe fn paint_name_stack(
-    tags: &[std::ffi::CString],
-    color: ImVec4,
-    origin: ImVec2,
-    col_w: f32,
-    line_gap: f32,
-    align_end: bool,
-) {
-    let mut y = origin.y;
-    for tag in tags {
-        let size = line_px(tag);
-        let x = if align_end {
-            origin.x + (col_w - size.x).max(0.0)
-        } else {
-            origin.x
-        };
-        igSetCursorPos(ImVec2 { x, y });
-        paint(tag, color, false, 0.0);
-        y += size.y + line_gap;
-    }
-}
-
 unsafe fn paint_scoreboard(parts: &scoreboard::DrawParts, chrome: &Chrome) {
     let scale = chrome.scale;
     let origin = igGetCursorPos();
-    let line_gap = chrome.spacing.y * scale;
-    let (left_w, left_h) = stack_size(&parts.left_tags, line_gap);
-    let (right_w, right_h) = stack_size(&parts.right_tags, line_gap);
-    let grid_h = BLOCK * scale;
+    let left_name = match parts.tag0.as_ref() {
+        Some(tag) => Some(line_px(tag)),
+        None => None,
+    };
+    let right_name = match parts.tag1.as_ref() {
+        Some(tag) => Some(line_px(tag)),
+        None => None,
+    };
     let left = side_column(
-        left_w,
-        left_h,
+        left_name.map(|size| size.x).unwrap_or(0.0),
         grid_width(parts.left, scale),
-        grid_h,
-        NAME_GRID_GAP * scale,
         true,
     );
     let right = side_column(
-        right_w,
-        right_h,
+        right_name.map(|size| size.x).unwrap_or(0.0),
         grid_width(parts.right, scale),
-        grid_h,
-        NAME_GRID_GAP * scale,
         false,
     );
+    let name_h = left_name
+        .map(|size| size.y)
+        .unwrap_or(0.0)
+        .max(right_name.map(|size| size.y).unwrap_or(0.0));
+    let grid_y = if name_h > 0.0 {
+        origin.y + name_h + chrome.spacing.y * scale
+    } else {
+        origin.y
+    };
     let right_x = origin.x + left.width + GROUP_GAP * scale;
-    let row_h = left.height.max(right.height);
-    let left_grid_y = origin.y + (row_h - grid_h) * 0.5;
-    let right_grid_y = origin.y + (row_h - grid_h) * 0.5;
-    let left_name_y = origin.y + (row_h - left_h) * 0.5;
-    let right_name_y = origin.y + (row_h - right_h) * 0.5;
-
-    if !parts.left_tags.is_empty() {
-        paint_name_stack(
-            &parts.left_tags,
-            COLOR_PORT_0,
-            ImVec2 {
-                x: origin.x + left.name_x,
-                y: left_name_y,
-            },
-            left_w,
-            line_gap,
-            true,
-        );
+    if let Some(tag) = parts.tag0.as_ref() {
+        igSetCursorPos(ImVec2 {
+            x: origin.x + left.name_x,
+            y: origin.y,
+        });
+        paint(tag, COLOR_PORT_0, false, 0.0);
     }
-    if !parts.right_tags.is_empty() {
-        paint_name_stack(
-            &parts.right_tags,
-            COLOR_PORT_1,
-            ImVec2 {
-                x: right_x + right.name_x,
-                y: right_name_y,
-            },
-            right_w,
-            line_gap,
-            false,
-        );
+    if let Some(tag) = parts.tag1.as_ref() {
+        igSetCursorPos(ImVec2 {
+            x: right_x + right.name_x,
+            y: origin.y,
+        });
+        paint(tag, COLOR_PORT_1, false, 0.0);
     }
     paint_mark_row(
         parts.left,
         COLOR_PORT_0,
         ImVec2 {
             x: origin.x + left.grid_x,
-            y: left_grid_y,
+            y: grid_y,
         },
         scale,
         true,
@@ -393,17 +344,11 @@ unsafe fn paint_scoreboard(parts: &scoreboard::DrawParts, chrome: &Chrome) {
         COLOR_PORT_1,
         ImVec2 {
             x: right_x + right.grid_x,
-            y: right_grid_y,
+            y: grid_y,
         },
         scale,
         false,
     );
-    // Reserve vertical space so auto-resize covers stacked names.
-    igSetCursorPos(ImVec2 {
-        x: origin.x,
-        y: origin.y + row_h,
-    });
-    igDummy(ImVec2 { x: 1.0, y: 1.0 });
 }
 
 fn winner_color(winner: u8) -> ImVec4 {
@@ -436,17 +381,16 @@ unsafe fn line_px(text: &std::ffi::CString) -> ImVec2 {
     igCalcTextSize(text.as_ptr(), std::ptr::null(), 0, -1.0)
 }
 
-fn outer_size(name: ImVec2, tags: &[ImVec2], chrome: &Chrome) -> (f32, f32) {
+fn outer_size(name: ImVec2, tag: Option<ImVec2>, chrome: &Chrome) -> (f32, f32) {
     let mut text_w = name.x;
     let mut text_h = name.y;
-    let mut gaps = 0usize;
-    for tag in tags {
+    let mut gap = 0.0;
+    if let Some(tag) = tag {
         text_w = text_w.max(tag.x);
         text_h += tag.y;
-        gaps += 1;
+        gap = chrome.spacing.y;
     }
     let scale = chrome.scale;
-    let gap = chrome.spacing.y * gaps as f32;
     (
         (text_w + chrome.pad.x * 2.0) * scale,
         (text_h + gap + chrome.pad.y * 2.0) * scale,
@@ -466,16 +410,19 @@ fn stage_window_id(index: usize) -> [u8; 16] {
 unsafe fn paint_stage_row(
     parts: &scoreboard::DrawParts,
     center_x: f32,
-    score_bottom: f32,
+    score_top: f32,
     chrome: &Chrome,
 ) {
     let mut sizes = Vec::with_capacity(parts.strip.len());
     for cell in &parts.strip {
-        let tag_px: Vec<ImVec2> = cell.tags.iter().map(|tag| line_px(tag)).collect();
-        sizes.push(outer_size(line_px(&cell.name), &tag_px, chrome));
+        let tag_px = match cell.tag.as_ref() {
+            Some(tag) => Some(line_px(tag)),
+            None => None,
+        };
+        sizes.push(outer_size(line_px(&cell.name), tag_px, chrome));
     }
     let gap = STRIP_GAP * chrome.scale;
-    let positions = stage_box_positions(&sizes, score_bottom, center_x, gap, gap);
+    let positions = stage_box_positions(&sizes, score_top, center_x, gap, gap);
     for (index, cell) in parts.strip.iter().enumerate() {
         let Some(pos) = positions.get(index) else {
             break;
@@ -494,7 +441,7 @@ unsafe fn paint_stage_row(
                 set_window_font_scale(chrome.scale);
             }
             let color = winner_color(cell.winner);
-            for tag in &cell.tags {
+            if let Some(tag) = cell.tag.as_ref() {
                 paint_centered(tag, color);
             }
             paint_centered(&cell.name, color);
@@ -503,70 +450,10 @@ unsafe fn paint_stage_row(
     }
 }
 
-unsafe fn paint_y_debug(chrome: &Chrome) {
-    let samples = scoreboard::height_debug();
-    if samples.is_empty() {
-        return;
-    }
-    let margin = EDGE_MARGIN * chrome.scale;
-    igSetNextWindowPos(
-        ImVec2 {
-            x: margin,
-            y: margin,
-        },
-        IMGUI_COND_ALWAYS,
-        ImVec2 { x: 0.0, y: 0.0 },
-    );
-    igSetNextWindowBgAlpha(WINDOW_BG_ALPHA);
-    if !igBegin(
-        b"##tm_y_debug\0".as_ptr() as _,
-        std::ptr::null_mut(),
-        SCORE_FLAGS,
-    ) {
-        igEnd();
-        return;
-    }
-    if chrome.scale > 1.0 {
-        set_window_font_scale(chrome.scale);
-    }
-    let header = std::ffi::CString::new("Y debug (top hide off)").unwrap_or_default();
-    paint(
-        &header,
-        ImVec4 {
-            x: 1.0,
-            y: 1.0,
-            z: 1.0,
-            w: 1.0,
-        },
-        false,
-        0.0,
-    );
-    for sample in samples {
-        let line = format!(
-            "E{} y={:.1} team={}",
-            sample.entry, sample.y, sample.team
-        );
-        if let Ok(text) = std::ffi::CString::new(line) {
-            paint(
-                &text,
-                ImVec4 {
-                    x: 0.85,
-                    y: 0.9,
-                    z: 0.7,
-                    w: 1.0,
-                },
-                false,
-                0.0,
-            );
-        }
-    }
-    igEnd();
-}
-
 unsafe extern "C" fn draw() {
     scoreboard::poll_missing_tags();
     let chrome = chrome();
-    let (center_x, top_y, width, height) = window_anchor(chrome.scale);
+    let (center_x, bottom_y, width, height) = window_anchor(chrome.scale);
     if !DRAW_LOGGED.swap(true, Ordering::Relaxed) {
         logutil::write(&format!(
             "score_overlay: draw {:.0}x{:.0} scale={:.0} visible={}",
@@ -576,7 +463,6 @@ unsafe extern "C" fn draw() {
             scoreboard::overlay_visible()
         ));
     }
-    paint_y_debug(&chrome);
     if let Some(parts) = scoreboard::draw_parts() {
         let scaled = chrome.scale > 1.0;
         if scaled {
@@ -598,13 +484,13 @@ unsafe extern "C" fn draw() {
         igSetNextWindowPos(
             ImVec2 {
                 x: center_x,
-                y: top_y,
+                y: bottom_y,
             },
             IMGUI_COND_ALWAYS,
-            ImVec2 { x: 0.5, y: 0.0 },
+            ImVec2 { x: 0.5, y: 1.0 },
         );
         igSetNextWindowBgAlpha(WINDOW_BG_ALPHA);
-        let mut score_bottom = None;
+        let mut score_top = None;
         if igBegin(
             b"##tm_score\0".as_ptr() as _,
             std::ptr::null_mut(),
@@ -614,15 +500,12 @@ unsafe extern "C" fn draw() {
                 set_window_font_scale(chrome.scale);
             }
             paint_scoreboard(&parts, &chrome);
-            let pos = igGetWindowPos();
-            // Auto-resize: approximate bottom from content cursor.
-            let cursor = igGetCursorPos();
-            score_bottom = Some(pos.y + cursor.y + chrome.pad.y * chrome.scale);
+            score_top = Some(igGetWindowPos().y);
         }
         igEnd();
-        if let Some(score_bottom) = score_bottom {
+        if let Some(score_top) = score_top {
             if !parts.strip.is_empty() {
-                paint_stage_row(&parts, center_x, score_bottom, &chrome);
+                paint_stage_row(&parts, center_x, score_top, &chrome);
             }
         }
         if scaled {
